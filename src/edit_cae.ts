@@ -3,6 +3,7 @@ import { z } from "zod"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import * as crypto from "node:crypto"
+import * as jsdiff from "diff"
 
 // --- Constants & Types ---
 const SIMILARITY_THRESHOLD = 0.8
@@ -11,22 +12,53 @@ export type Replacer = (content: string, find: string) => Generator<string, void
 
 // --- Helper Functions ---
 
-function normalize(str: string): string {
+/**
+ * Normalizes line endings to \n
+ */
+export function normalize(str: string): string {
+  if (typeof str !== "string") return ""
   return str.replace(/\r\n/g, "\n")
 }
 
-function levenshtein(a: string, b: string): number {
-  if (a === "" || b === "") return Math.max(a.length, b.length)
-  const matrix = Array.from({ length: a.length + 1 }, (_, i) =>
-    Array.from({ length: b.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+/**
+ * Ported from reference/edit.ts to ensure clean diff output
+ */
+export function trimDiff(diff: any): string {
+  if (typeof diff !== "string" || !diff) return ""
+  
+  const lines = diff.split("\n")
+  const contentLines = lines.filter(
+    (line) =>
+      (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) &&
+      !line.startsWith("---") &&
+      !line.startsWith("+++"),
   )
-  for (let i = 1; i <= a.length; i++) {
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1
-      matrix[i][j] = Math.min(matrix[i - 1][j] + 1, matrix[i][j - 1] + 1, matrix[i - 1][j - 1] + cost)
+
+  if (contentLines.length === 0) return diff
+
+  let min = Infinity
+  for (const line of contentLines) {
+    const content = line.slice(1)
+    if (content.trim().length > 0) {
+      const match = content.match(/^(\s*)/)
+      if (match) min = Math.min(min, match[1].length)
     }
   }
-  return matrix[a.length][b.length]
+  if (min === Infinity || min === 0) return diff
+  const trimmedLines = lines.map((line) => {
+    if (
+      (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) &&
+      !line.startsWith("---") &&
+      !line.startsWith("+++")
+    ) {
+      const prefix = line[0]
+      const content = line.slice(1)
+      return prefix + content.slice(min)
+    }
+    return line
+  })
+
+  return trimmedLines.join("\n")
 }
 
 /**
@@ -66,7 +98,7 @@ function isPythonFile(filePath: string): boolean {
   return filePath.endsWith(".py")
 }
 
-function validatePythonIndentation(content: string) {
+export function validatePythonIndentation(content: string) {
   const lines = content.split("\n")
   let usesTabs = false
   let usesSpaces = false
@@ -81,17 +113,17 @@ function validatePythonIndentation(content: string) {
   }
 }
 
-// --- Replacers ---
-
-const SimpleReplacer: Replacer = function* (_content, find) {
-  yield find
-}
-
-function getLineEnding(content: string): string {
+export function getLineEnding(content: string): string {
   return content.includes("\r\n") ? "\r\n" : "\n"
 }
 
-const LineTrimmedReplacer: Replacer = function* (content, find) {
+// --- Replacers ---
+
+export const SimpleReplacer: Replacer = function* (_content, find) {
+  yield find
+}
+
+export const LineTrimmedReplacer: Replacer = function* (content, find) {
   const lineEnding = getLineEnding(content)
   const originalLines = content.split(/\r?\n/)
   const searchLines = find.split(/\r?\n/)
@@ -118,7 +150,7 @@ const LineTrimmedReplacer: Replacer = function* (content, find) {
   }
 }
 
-const BlockAnchorReplacer: Replacer = function* (content, find) {
+export const BlockAnchorReplacer: Replacer = function* (content, find) {
   const lineEnding = getLineEnding(content)
   const originalLines = content.split(/\r?\n/)
   const searchLines = find.split(/\r?\n/)
@@ -160,14 +192,13 @@ export const edit_cae = tool({
     const { filePath, oldString, newString, replaceAll = false } = args
     const absPath = path.isAbsolute(filePath) ? filePath : path.join(context.directory, filePath)
     
-    const rawContent = await fs.readFile(absPath, "utf8")
-    const content = rawContent
+    const contentOld = await fs.readFile(absPath, "utf8")
     const normalizedOld = normalize(oldString)
     const normalizedNew = normalize(newString)
 
     if (isPythonFile(absPath)) {
       validatePythonIndentation(normalizedNew)
-      validatePythonIndentation(content)
+      validatePythonIndentation(contentOld)
     }
 
     let foundMatch: { search: string; index: number } | null = null
@@ -179,38 +210,69 @@ export const edit_cae = tool({
       BlockAnchorReplacer,
     ]
 
+    let contentNew = ""
+    let matchIndex = -1
+    let matchLength = -1
+
     for (const replacer of replacers) {
-      for (const search of replacer(content, normalizedOld)) {
-        const index = content.indexOf(search)
+      for (const search of replacer(contentOld, normalizedOld)) {
+        const index = contentOld.indexOf(search)
         if (index === -1) continue
         notFound = false
         
         if (replaceAll) {
-          const result = content.replaceAll(search, normalizedNew)
-          if (isPythonFile(absPath)) validatePythonIndentation(result)
-          await fs.writeFile(absPath, result, "utf8")
-          return `Edit applied successfully (replaceAll) using fuzzy matching.`
+          contentNew = contentOld.replaceAll(search, normalizedNew)
+          matchIndex = 0
+          matchLength = contentOld.length
+          foundMatch = { search, index: 0 } 
+          break
         }
 
-        const lastIndex = content.lastIndexOf(search)
+        const lastIndex = contentOld.lastIndexOf(search)
         if (index !== lastIndex) continue // Not unique
         
         foundMatch = { search, index }
+        contentNew = contentOld.substring(0, index) + normalizedNew + contentOld.substring(index + search.length)
+        matchIndex = index
+        matchLength = search.length
         break
       }
       if (foundMatch) break
     }
 
     if (foundMatch) {
-      const { search, index } = foundMatch
-      const result = content.substring(0, index) + normalizedNew + content.substring(index + search.length)
-      
       if (isPythonFile(absPath)) {
-        validatePythonIndentation(result)
+        validatePythonIndentation(contentNew)
       }
       
-      await safeWrite(absPath, result, content, index, search.length)
-      return `Edit applied successfully using high-reliability matching.`
+      // Generate Diff for UI and Metadata
+      const diff = trimDiff(jsdiff.createTwoFilesPatch(absPath, absPath, contentOld, contentNew))
+      const diffResults = jsdiff.diffLines(contentOld, contentNew)
+      const additions = diffResults.reduce((acc, c) => acc + (c.added ? (c.count || 0) : 0), 0)
+      const deletions = diffResults.reduce((acc, c) => acc + (c.removed ? (c.count || 0) : 0), 0)
+
+      // Mandatory platform ask for behavior consistency (TUI Diff Preview)
+      await context.ask({
+        permission: "edit",
+        patterns: [path.relative(context.worktree, absPath)],
+        always: ["*"],
+        metadata: { filepath: absPath, diff }
+      })
+
+      if (replaceAll) {
+        await fs.writeFile(absPath, contentNew, "utf8")
+      } else {
+        await safeWrite(absPath, contentNew, contentOld, matchIndex, matchLength)
+      }
+
+      return {
+        metadata: {
+          diff,
+          filediff: { file: absPath, before: contentOld, after: contentNew, additions, deletions }
+        },
+        title: path.relative(context.worktree, absPath),
+        output: `Edit applied successfully using high-reliability matching.`
+      }
     }
 
     if (notFound) {

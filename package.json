@@ -6,7 +6,7 @@
   "main": "src/index.ts",
   "scripts": {
     "build": "bun build ./src/plugin.ts --outfile=plugin/index.js --target=node --bundle",
-    "test": "bun run tests/integration.test.ts && bun run tests/repro_issue.test.ts",
+    "test": "bun test tests/unit.test.ts && bun run tests/integration.test.ts && bun run tests/repro_issue.test.ts",
     "install-global": "mkdir -p ~/.opencode/plugins && cp -f $(pwd)/plugin/index.js ~/.opencode/plugins/edit_cae.js"
   },
   "keywords": [],
