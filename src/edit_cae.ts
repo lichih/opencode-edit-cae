@@ -71,6 +71,7 @@ export function trimDiff(diff: any): string {
 async function safeWrite(filePath: string, content: string, originalContent: string, matchIndex: number, matchLength: number) {
   const tempPath = `${filePath}.${crypto.randomBytes(4).toString("hex")}.tmp`
   
+  // Tail validation: Ensure the part of the file AFTER the edit remains identical
   const originalTail = originalContent.substring(matchIndex + matchLength)
   const newTail = content.substring(content.length - originalTail.length)
   
@@ -84,6 +85,7 @@ async function safeWrite(filePath: string, content: string, originalContent: str
     await fileHandle.sync()
     await fileHandle.close()
     
+    // Verify by reading it back
     const writtenContent = await fs.readFile(tempPath, "utf8")
     if (writtenContent !== content) {
       throw new Error("Verification failed: Written content does not match intended content.")
@@ -269,23 +271,22 @@ export const edit_cae = tool({
         await safeWrite(absPath, contentNew, contentOld, matchIndex, matchLength)
       }
 
-      // Send structured metadata via the context function
-      context.metadata({
-        title: path.relative(context.worktree, absPath),
-        metadata: {
-          diff,
-          filediff: { file: absPath, before: contentOld, after: contentNew, additions, deletions }
-        }
-      });
-
-      // BLACK MAGIC: Return JSON string for tool.execute.after hook to intercept
-      return JSON.stringify({
+      // Final Packet for the Hook - using a high-visibility delimiter
+      const packet = {
         __is_opencode_patch__: true,
         diff,
-        filediff: { file: absPath, before: contentOld, after: contentNew, additions, deletions },
+        filediff: { 
+          file: absPath, 
+          before: contentOld, 
+          after: contentNew, 
+          additions, 
+          deletions 
+        },
         filename: path.basename(absPath),
         relativeities: path.relative(context.worktree, absPath)
-      });
+      };
+
+      return `Edit applied successfully using high-reliability matching.\n\n<<<CAE_DATA_START>>>${JSON.stringify(packet)}<<<CAE_DATA_END>>>`
     }
 
     if (notFound) {

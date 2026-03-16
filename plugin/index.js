@@ -14587,20 +14587,22 @@ var edit_cae = tool({
       } else {
         await safeWrite(absPath, contentNew, contentOld, matchIndex, matchLength);
       }
-      context.metadata({
-        title: path.relative(context.worktree, absPath),
-        metadata: {
-          diff,
-          filediff: { file: absPath, before: contentOld, after: contentNew, additions, deletions }
-        }
-      });
-      return JSON.stringify({
+      const packet = {
         __is_opencode_patch__: true,
         diff,
-        filediff: { file: absPath, before: contentOld, after: contentNew, additions, deletions },
+        filediff: {
+          file: absPath,
+          before: contentOld,
+          after: contentNew,
+          additions,
+          deletions
+        },
         filename: path.basename(absPath),
         relativeities: path.relative(context.worktree, absPath)
-      });
+      };
+      return `Edit applied successfully using high-reliability matching.
+
+<<<CAE_DATA_START>>>${JSON.stringify(packet)}<<<CAE_DATA_END>>>`;
     }
     if (notFound) {
       throw new Error("Could not find oldString in the file. It must match exactly or via fuzzy matching.");
@@ -14615,24 +14617,34 @@ var EditCaePlugin = async () => {
     tool: {
       edit_cae
     },
-    hooks: {
-      "tool.execute.after": async (input, output) => {
-        if (input.tool === "edit_cae") {
+    "tool.execute.after": async (input, output) => {
+      if (input.tool === "edit_cae") {
+        const rawOutput = output.output || "";
+        const startMarker = "<<<CAE_DATA_START>>>";
+        const endMarker = "<<<CAE_DATA_END>>>";
+        const startIndex = rawOutput.indexOf(startMarker);
+        const endIndex = rawOutput.indexOf(endMarker);
+        if (startIndex !== -1 && endIndex !== -1) {
           try {
-            const data = JSON.parse(output.output);
+            const jsonStr = rawOutput.substring(startIndex + startMarker.length, endIndex);
+            const data = JSON.parse(jsonStr);
             if (data && data.__is_opencode_patch__) {
               output.metadata = {
                 ...output.metadata,
                 diff: data.diff,
                 filediff: data.filediff,
-                title: data.relativeities || data.filename
+                additions: data.filediff.additions,
+                deletions: data.filediff.deletions,
+                kind: "diff.v1"
               };
-              output.output = `Edit applied successfully using high-reliability matching. [CAE-INTEGRATED]`;
-              if (data.relativeities) {
-                output.title = data.relativeities;
-              }
+              output.title = data.relativeities || data.filename;
+              const cleanOutput = rawOutput.substring(0, startIndex).trim();
+              output.output = cleanOutput || "✅ Edit applied successfully (Aider-style CAE).";
+              console.log(`[CAE-HOOK] Successfully re-injected metadata for ${output.title}`);
             }
-          } catch (e) {}
+          } catch (e) {
+            console.error(`[CAE-HOOK] Failed to parse CAE packet: ${e}`);
+          }
         }
       }
     }
