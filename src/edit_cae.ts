@@ -278,8 +278,14 @@ export const edit_cae = tool({
         }
       });
 
-      // CRITICAL: Return a STRING to avoid TypeError in registry.ts:Truncate.output
-      return `Edit applied successfully using high-reliability matching. [Final Fix]`
+      // BLACK MAGIC: Return JSON string for tool.execute.after hook to intercept
+      return JSON.stringify({
+        __is_opencode_patch__: true,
+        diff,
+        filediff: { file: absPath, before: contentOld, after: contentNew, additions, deletions },
+        filename: path.basename(absPath),
+        relativeities: path.relative(context.worktree, absPath)
+      });
     }
 
     if (notFound) {

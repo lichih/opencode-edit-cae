@@ -14594,7 +14594,13 @@ var edit_cae = tool({
           filediff: { file: absPath, before: contentOld, after: contentNew, additions, deletions }
         }
       });
-      return `Edit applied successfully using high-reliability matching. [Final Fix]`;
+      return JSON.stringify({
+        __is_opencode_patch__: true,
+        diff,
+        filediff: { file: absPath, before: contentOld, after: contentNew, additions, deletions },
+        filename: path.basename(absPath),
+        relativeities: path.relative(context.worktree, absPath)
+      });
     }
     if (notFound) {
       throw new Error("Could not find oldString in the file. It must match exactly or via fuzzy matching.");
@@ -14608,6 +14614,27 @@ var EditCaePlugin = async () => {
   return {
     tool: {
       edit_cae
+    },
+    hooks: {
+      "tool.execute.after": async (input, output) => {
+        if (input.tool === "edit_cae") {
+          try {
+            const data = JSON.parse(output.output);
+            if (data && data.__is_opencode_patch__) {
+              output.metadata = {
+                ...output.metadata,
+                diff: data.diff,
+                filediff: data.filediff,
+                title: data.relativeities || data.filename
+              };
+              output.output = `Edit applied successfully using high-reliability matching. [CAE-INTEGRATED]`;
+              if (data.relativeities) {
+                output.title = data.relativeities;
+              }
+            }
+          } catch (e) {}
+        }
+      }
     }
   };
 };

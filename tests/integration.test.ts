@@ -23,7 +23,11 @@ async function runTest(name: string, args: any) {
   console.log(`\n--- Test: ${name} ---`)
   try {
     const result = await edit_cae.execute(args, context as any)
-    console.log("Result:", result)
+    if (typeof result === "string" && result.startsWith("{")) {
+       console.log("Result (JSON Packet):", JSON.parse(result).output || "[Raw JSON Packet]");
+    } else {
+       console.log("Result:", result)
+    }
   } catch (error: any) {
     console.error("Error:", error.message)
   }
