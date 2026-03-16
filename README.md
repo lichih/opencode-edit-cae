@@ -34,6 +34,20 @@
    ```
    *這將讓 `edit_cae` 成為您所有 Opencode 會話中的預設編輯工具。*
 
+### 方案 C：遠端安裝 (快速試用)
+如果您不想下載源碼，可以直接在 `opencode.json` 中引用 GitHub 上的編譯版本：
+```json
+{
+  "plugin": [
+    "https://raw.githubusercontent.com/lichih/opencode-edit-cae/main/plugin/index.js"
+  ],
+  "tools": {
+    "edit": false,
+    "edit_cae": true
+  }
+}
+```
+
 ## 🛠 使用方式
 
 本工具註冊指令為 `edit_cae`（或在全域取代後作為主要編輯工具）。參數如下：
