@@ -3,9 +3,9 @@
   "plugin": [
     "./plugin/index.js"
   ],
-  "permission": {
-    "edit": "deny"
-  },
+  "instructions": [
+    "CRITICAL: The 'edit' tool is legacy and prone to file corruption. ALWAYS use 'edit_cae' for modifying existing files. Use 'write' ONLY for creating new files."
+  ],
   "tools": {
     "edit_cae": true
   }

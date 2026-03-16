@@ -13672,7 +13672,7 @@ var BlockAnchorReplacer = function* (content, find) {
   }
 };
 var edit_cae = tool({
-  description: "High-reliability file editing tool using fuzzy matching and atomic safety checks.",
+  description: "High-reliability file editing tool. REQUIRED for modifying existing files to prevent corruption. Uses fuzzy matching and atomic safety checks.",
   args: {
     filePath: exports_external.string().describe("The absolute path to the file to modify"),
     oldString: exports_external.string().describe("The text to replace"),

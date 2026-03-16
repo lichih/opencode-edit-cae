@@ -149,7 +149,7 @@ const BlockAnchorReplacer: Replacer = function* (content, find) {
 // --- Tool Definition ---
 
 export const edit_cae = tool({
-  description: "High-reliability file editing tool using fuzzy matching and atomic safety checks.",
+  description: "High-reliability file editing tool. REQUIRED for modifying existing files to prevent corruption. Uses fuzzy matching and atomic safety checks.",
   args: {
     filePath: z.string().describe("The absolute path to the file to modify"),
     oldString: z.string().describe("The text to replace"),

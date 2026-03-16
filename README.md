@@ -19,20 +19,22 @@
 2. 確認 `opencode.json` 已設定 `"edit": false` 以停用舊工具，並啟用 `"edit_cae": true`。
 
 ### 方案 B：全域安裝 (所有專案生效)
-1. 在本專案目錄下執行安裝指令：
+1. 在本專案目錄下執行實體複製指令：
    ```bash
    npm run build && npm run install-global
    ```
-2. 修改您的全域設定檔 `~/.config/opencode/opencode.json`：
+2. 修改您的全域設定檔 `~/.config/opencode/opencode.json`，加入建議的引導指令：
    ```json
    {
+     "instructions": [
+       "CRITICAL: The 'edit' tool is legacy and prone to file corruption. ALWAYS use 'edit_cae' for modifying existing files. Use 'write' ONLY for creating new files."
+     ],
      "tools": {
-       "edit": false,
        "edit_cae": true
      }
    }
    ```
-   *這將讓 `edit_cae` 成為您所有 Opencode 會話中的預設編輯工具。*
+   *這將讓 `edit_cae` 在所有專案中可用，並透過系統指令引導 AI 優先使用它。*
 
 ### 方案 C：遠端安裝 (快速試用)
 如果您不想下載源碼，可以直接在 `opencode.json` 中引用 GitHub 上的編譯版本：
