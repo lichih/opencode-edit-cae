@@ -5,6 +5,10 @@ import * as path from "node:path"
 import * as crypto from "node:crypto"
 import * as jsdiff from "diff"
 
+// Use a more robust import check for bundled environments
+const createPatch = (jsdiff.createTwoFilesPatch || (jsdiff as any).default?.createTwoFilesPatch || (() => "")) as any;
+const diffLinesFunc = (jsdiff.diffLines || (jsdiff as any).default?.diffLines || (() => [])) as any;
+
 // --- Constants & Types ---
 const SIMILARITY_THRESHOLD = 0.8
 
@@ -67,7 +71,6 @@ export function trimDiff(diff: any): string {
 async function safeWrite(filePath: string, content: string, originalContent: string, matchIndex: number, matchLength: number) {
   const tempPath = `${filePath}.${crypto.randomBytes(4).toString("hex")}.tmp`
   
-  // Tail validation: Ensure the part of the file AFTER the edit remains identical
   const originalTail = originalContent.substring(matchIndex + matchLength)
   const newTail = content.substring(content.length - originalTail.length)
   
@@ -81,7 +84,6 @@ async function safeWrite(filePath: string, content: string, originalContent: str
     await fileHandle.sync()
     await fileHandle.close()
     
-    // Verify by reading it back
     const writtenContent = await fs.readFile(tempPath, "utf8")
     if (writtenContent !== content) {
       throw new Error("Verification failed: Written content does not match intended content.")
@@ -246,10 +248,12 @@ export const edit_cae = tool({
       }
       
       // Generate Diff for UI and Metadata
-      const diff = trimDiff(jsdiff.createTwoFilesPatch(absPath, absPath, contentOld, contentNew))
-      const diffResults = jsdiff.diffLines(contentOld, contentNew)
-      const additions = diffResults.reduce((acc, c) => acc + (c.added ? (c.count || 0) : 0), 0)
-      const deletions = diffResults.reduce((acc, c) => acc + (c.removed ? (c.count || 0) : 0), 0)
+      const rawPatch = createPatch(absPath, absPath, contentOld, contentNew);
+      const diff = trimDiff(rawPatch);
+      
+      const diffResults = diffLinesFunc(contentOld, contentNew)
+      const additions = diffResults.reduce((acc: number, c: any) => acc + (c.added ? (c.count || 0) : 0), 0)
+      const deletions = diffResults.reduce((acc: number, c: any) => acc + (c.removed ? (c.count || 0) : 0), 0)
 
       // Mandatory platform ask for behavior consistency (TUI Diff Preview)
       await context.ask({
@@ -265,14 +269,17 @@ export const edit_cae = tool({
         await safeWrite(absPath, contentNew, contentOld, matchIndex, matchLength)
       }
 
-      return {
+      // Send structured metadata via the context function
+      context.metadata({
+        title: path.relative(context.worktree, absPath),
         metadata: {
           diff,
           filediff: { file: absPath, before: contentOld, after: contentNew, additions, deletions }
-        },
-        title: path.relative(context.worktree, absPath),
-        output: `Edit applied successfully using high-reliability matching.`
-      }
+        }
+      });
+
+      // CRITICAL: Return a STRING to avoid TypeError in registry.ts:Truncate.output
+      return `Edit applied successfully using high-reliability matching. [Final Fix]`
     }
 
     if (notFound) {

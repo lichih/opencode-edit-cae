@@ -13,6 +13,11 @@ var __export = (target, all) => {
     });
 };
 
+// src/plugin-tool.ts
+function tool(input) {
+  return input;
+}
+
 // node_modules/zod/v4/classic/external.js
 var exports_external = {};
 __export(exports_external, {
@@ -13545,12 +13550,6 @@ function date4(params) {
 
 // node_modules/zod/v4/classic/external.js
 config(en_default());
-// src/plugin-tool.ts
-function tool(input) {
-  return input;
-}
-tool.schema = exports_external;
-
 // src/edit_cae.ts
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
@@ -14365,6 +14364,8 @@ function splitLines(text) {
 }
 
 // src/edit_cae.ts
+var createPatch2 = createTwoFilesPatch || undefined?.createTwoFilesPatch || (() => "");
+var diffLinesFunc = diffLines || undefined?.diffLines || (() => []);
 function normalize(str) {
   if (typeof str !== "string")
     return "";
@@ -14570,8 +14571,9 @@ var edit_cae = tool({
       if (isPythonFile(absPath)) {
         validatePythonIndentation(contentNew);
       }
-      const diff = trimDiff(createTwoFilesPatch(absPath, absPath, contentOld, contentNew));
-      const diffResults = diffLines(contentOld, contentNew);
+      const rawPatch = createPatch2(absPath, absPath, contentOld, contentNew);
+      const diff = trimDiff(rawPatch);
+      const diffResults = diffLinesFunc(contentOld, contentNew);
       const additions = diffResults.reduce((acc, c) => acc + (c.added ? c.count || 0 : 0), 0);
       const deletions = diffResults.reduce((acc, c) => acc + (c.removed ? c.count || 0 : 0), 0);
       await context.ask({
@@ -14585,14 +14587,14 @@ var edit_cae = tool({
       } else {
         await safeWrite(absPath, contentNew, contentOld, matchIndex, matchLength);
       }
-      return {
+      context.metadata({
+        title: path.relative(context.worktree, absPath),
         metadata: {
           diff,
           filediff: { file: absPath, before: contentOld, after: contentNew, additions, deletions }
-        },
-        title: path.relative(context.worktree, absPath),
-        output: `Edit applied successfully using high-reliability matching.`
-      };
+        }
+      });
+      return `Edit applied successfully using high-reliability matching. [Final Fix]`;
     }
     if (notFound) {
       throw new Error("Could not find oldString in the file. It must match exactly or via fuzzy matching.");

@@ -13,7 +13,9 @@ const context = {
   messageID: "test-msg",
   agent: "test-agent",
   abort: new AbortController().signal,
-  metadata: () => {},
+  metadata: (input: any) => {
+    console.log("Metadata received:", JSON.stringify(input, null, 2).substring(0, 100) + "...");
+  },
   ask: async () => {}
 }
 

@@ -27,6 +27,12 @@ describe("Edit CAE Unit Tests", () => {
     });
   });
 
+  describe("Integration Components", () => {
+    test("normalize: handles null/undefined safely", () => {
+       expect(normalize(null as any)).toBe("");
+    });
+  });
+
   describe("Replacers", () => {
     test("LineTrimmedReplacer: should find match ignoring indentation", () => {
       const content = "  if (true) {\n    console.log('test')\n  }";
