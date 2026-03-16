@@ -29,7 +29,6 @@ import { LspTool } from "./lsp"
 import { Truncate } from "./truncation"
 
 import { ApplyPatchTool } from "./apply_patch"
-import { AiderEditTool } from "./aider_edit"
 import { Glob } from "../util/glob"
 import { pathToFileURL } from "url"
 
@@ -110,7 +109,6 @@ export namespace ToolRegistry {
       GlobTool,
       GrepTool,
       EditTool,
-      AiderEditTool,
       WriteTool,
       TaskTool,
       WebFetchTool,
@@ -151,7 +149,7 @@ export namespace ToolRegistry {
           const usePatch =
             model.modelID.includes("gpt-") && !model.modelID.includes("oss") && !model.modelID.includes("gpt-4")
           if (t.id === "apply_patch") return usePatch
-          if (t.id === "edit" || t.id === "write" || t.id === "aider_edit") return !usePatch
+          if (t.id === "edit" || t.id === "write") return !usePatch
 
           return true
         })

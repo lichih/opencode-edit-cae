@@ -1,15 +1,16 @@
 {
-  "name": "diff-edit-tool",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "edit_cae",
+  "version": "0.1.0",
+  "description": "High-reliability file editing plugin for Opencode",
+  "type": "module",
+  "main": "src/index.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "bun build ./src/index.ts --outfile=dist/index.js --target=node --bundle",
+    "test": "bun run tests/repro_issue.ts"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "diff": "^8.0.3",
     "zod": "^4.3.6"

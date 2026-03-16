@@ -1,0 +1,8 @@
+line1
+line2_updated
+line3_updated
+line4_moved
+line5
+
+duplicate
+duplicate

@@ -20,19 +20,6 @@ import { assertExternalDirectory } from "./external-directory"
 
 const MAX_DIAGNOSTICS_PER_FILE = 20
 
-const SENSITIVE_PATTERNS = [/#\s*<SECURE>/i, /#\s*Private/i, /#\s*Sensitive/i, /#\s*Secrets/i]
-
-function getLineNumber(content: string, index: number): number {
-  return content.substring(0, index).split("\n").length
-}
-
-export interface MatchInfo {
-  startLine: number
-  endLine: number
-  actualLineCount: number
-  content: string
-}
-
 function normalizeLineEndings(text: string): string {
   return text.replaceAll("\r\n", "\n")
 }
@@ -46,30 +33,6 @@ function convertToLineEnding(text: string, ending: "\n" | "\r\n"): string {
   return text.replaceAll("\n", "\r\n")
 }
 
-function escapeInvisibleCharacters(text: string): string {
-  return text.replaceAll("\n", "\\n").replaceAll("\r", "\\r").replaceAll("\t", "\\t").replaceAll(" ", "·") // Use middle dot to visualize spaces
-}
-
-function generateLineByLineDiff(expected: string, actual: string): string {
-  const expectedLines = expected.split("\n")
-  const actualLines = actual.split("\n")
-  const diffLines: string[] = []
-
-  const maxLines = Math.max(expectedLines.length, actualLines.length)
-  for (let i = 0; i < maxLines; i++) {
-    const exp = expectedLines[i] ?? "(missing)"
-    const act = actualLines[i] ?? "(missing)"
-
-    if (exp === act) {
-      diffLines.push(`  L${i + 1}: ${exp}`)
-    } else {
-      diffLines.push(`- L${i + 1}: ${exp}`)
-      diffLines.push(`+ L${i + 1}: ${act}`)
-    }
-  }
-  return diffLines.join("\n")
-}
-
 export const EditTool = Tool.define("edit", {
   description: DESCRIPTION,
   parameters: z.object({
@@ -77,8 +40,6 @@ export const EditTool = Tool.define("edit", {
     oldString: z.string().describe("The text to replace"),
     newString: z.string().describe("The text to replace it with (must be different from oldString)"),
     replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
-    startLine: z.number().int().min(1).describe("The starting line number (1-indexed)"),
-    endLine: z.number().int().min(1).describe("The ending line number (1-indexed)"),
   }),
   async execute(params, ctx) {
     if (!params.filePath) {
@@ -95,8 +56,6 @@ export const EditTool = Tool.define("edit", {
     let diff = ""
     let contentOld = ""
     let contentNew = ""
-    let matches: MatchInfo[] = []
-
     await FileTime.withLock(filePath, async () => {
       if (params.oldString === "") {
         const existed = await Filesystem.exists(filePath)
@@ -119,7 +78,7 @@ export const EditTool = Tool.define("edit", {
           file: filePath,
           event: existed ? "change" : "add",
         })
-        FileTime.read(ctx.sessionID, filePath)
+        await FileTime.read(ctx.sessionID, filePath)
         return
       }
 
@@ -133,20 +92,7 @@ export const EditTool = Tool.define("edit", {
       const old = convertToLineEnding(normalizeLineEndings(params.oldString), ending)
       const next = convertToLineEnding(normalizeLineEndings(params.newString), ending)
 
-      const replaceResult = replace(contentOld, old, next, params.startLine, params.endLine, params.replaceAll)
-      contentNew = replaceResult.content
-      matches = replaceResult.matches
-
-      // Safety Guard: Sensitive Pattern Detection
-      for (const match of matches) {
-        for (const pattern of SENSITIVE_PATTERNS) {
-          if (pattern.test(match.content) && !pattern.test(params.newString)) {
-            throw new Error(
-              `Safety Guard: Your edit would remove a sensitive pattern (${pattern.source}) at lines ${match.startLine}-${match.endLine}. If this is intentional, please ensure the sensitive logic is preserved or explicitly include the pattern in your newString.`,
-            )
-          }
-        }
-      }
+      contentNew = replace(contentOld, old, next, params.replaceAll)
 
       diff = trimDiff(
         createTwoFilesPatch(filePath, filePath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew)),
@@ -173,7 +119,7 @@ export const EditTool = Tool.define("edit", {
       diff = trimDiff(
         createTwoFilesPatch(filePath, filePath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew)),
       )
-      FileTime.read(ctx.sessionID, filePath)
+      await FileTime.read(ctx.sessionID, filePath)
     })
 
     const filediff: Snapshot.FileDiff = {
@@ -197,9 +143,6 @@ export const EditTool = Tool.define("edit", {
     })
 
     let output = "Edit applied successfully."
-    if (matches.length > 0) {
-      output = `Edit applied successfully at ${matches.map((m) => `lines ${m.startLine}-${m.endLine}`).join(", ")}.`
-    }
     await LSP.touchFile(filePath, true)
     const diagnostics = await LSP.diagnostics()
     const normalizedFilePath = Filesystem.normalizePath(filePath)
@@ -685,116 +628,41 @@ export function trimDiff(diff: string): string {
   return trimmedLines.join("\n")
 }
 
-export function replace(
-  content: string,
-  oldString: string,
-  newString: string,
-  startLine: number,
-  endLine: number,
-  replaceAll = false,
-): { content: string; matches: MatchInfo[] } {
+export function replace(content: string, oldString: string, newString: string, replaceAll = false): string {
   if (oldString === newString) {
     throw new Error("No changes to apply: oldString and newString are identical.")
   }
 
-  const lines = content.split("\n")
-  if (startLine > lines.length || endLine > lines.length || startLine > endLine) {
-    throw new Error(`Invalid line range: lines ${startLine}-${endLine}. File has only ${lines.length} lines.`)
-  }
+  let notFound = true
 
-  const actualSegment = lines.slice(startLine - 1, endLine).join("\n")
-
-  // 1. Try exact match at physical coordinates (CAE - Coordinate-Anchored Edit)
-  if (actualSegment === oldString) {
-    const matches: MatchInfo[] = [
-      {
-        startLine,
-        endLine,
-        actualLineCount: endLine - startLine + 1,
-        content: actualSegment,
-      },
-    ]
-
-    let newContent = content
-    if (replaceAll) {
-      newContent = content.replaceAll(actualSegment, newString)
-    } else {
-      const before = lines.slice(0, startLine - 1)
-      const after = lines.slice(endLine)
-      newContent = [...before, newString, ...after].join("\n")
-    }
-    return { content: newContent, matches }
-  }
-
-  // 2. Fallback: If physical match fails, try Aider-style fuzzy matching algorithms
-  // These are ordered from most specific to most flexible
-  const replacers: Array<{ name: string; fn: Replacer }> = [
-    { name: "LineTrimmed", fn: LineTrimmedReplacer },
-    { name: "WhitespaceNormalized", fn: WhitespaceNormalizedReplacer },
-    { name: "IndentationFlexible", fn: IndentationFlexibleReplacer },
-    { name: "BlockAnchor", fn: BlockAnchorReplacer },
-    { name: "ContextAware", fn: ContextAwareReplacer },
-    { name: "EscapeNormalized", fn: EscapeNormalizedReplacer },
-    { name: "TrimmedBoundary", fn: TrimmedBoundaryReplacer },
-  ]
-
-  for (const replacer of replacers) {
-    const candidateMatches = Array.from(replacer.fn(content, oldString))
-
-    if (candidateMatches.length === 1) {
-      const match = candidateMatches[0]
-      // Find the start line of this match in the content
-      const startIndex = content.indexOf(match)
-      if (startIndex !== -1) {
-        const matchStartLine = getLineNumber(content, startIndex)
-        const matchEndLine = matchStartLine + match.split("\n").length - 1
-
-        const matches: MatchInfo[] = [
-          {
-            startLine: matchStartLine,
-            endLine: matchEndLine,
-            actualLineCount: matchEndLine - matchStartLine + 1,
-            content: match,
-          },
-        ]
-
-        let newContent = content
-        if (replaceAll) {
-          newContent = content.replaceAll(match, newString)
-        } else {
-          newContent = content.replace(match, newString)
-        }
-
-        return { content: newContent, matches }
+  for (const replacer of [
+    SimpleReplacer,
+    LineTrimmedReplacer,
+    BlockAnchorReplacer,
+    WhitespaceNormalizedReplacer,
+    IndentationFlexibleReplacer,
+    EscapeNormalizedReplacer,
+    TrimmedBoundaryReplacer,
+    ContextAwareReplacer,
+    MultiOccurrenceReplacer,
+  ]) {
+    for (const search of replacer(content, oldString)) {
+      const index = content.indexOf(search)
+      if (index === -1) continue
+      notFound = false
+      if (replaceAll) {
+        return content.replaceAll(search, newString)
       }
-    }
-
-    if (candidateMatches.length > 1) {
-      throw new Error(
-        `Found multiple matches for oldString using ${replacer.name} matching. Provide more surrounding lines in oldString to identify the correct match.`,
-      )
+      const lastIndex = content.lastIndexOf(search)
+      if (index !== lastIndex) continue
+      return content.substring(0, index) + newString + content.substring(index + search.length)
     }
   }
 
-  // 3. If all fallbacks fail, provide detailed diagnostic for the original physical coordinates
-  let message = `Atomic Edit Integrity Check Failed: The content at lines ${startLine}-${endLine} does not match your oldString exactly, and no unique fallback matches were found.`
-
-  // Check for indentation or whitespace issues
-  if (actualSegment.trim() === oldString.trim()) {
-    message +=
-      "\nHint: The text matches if trimmed. Please check for leading/trailing whitespace or indentation differences."
+  if (notFound) {
+    throw new Error(
+      "Could not find oldString in the file. It must match exactly, including whitespace, indentation, and line endings.",
+    )
   }
-
-  // Check for line ending issues
-  if (actualSegment.replaceAll("\r", "") === oldString.replaceAll("\r", "")) {
-    message += "\nHint: There might be hidden carriage return (CR) characters causing the mismatch."
-  }
-
-  const lineDiff = generateLineByLineDiff(oldString, actualSegment)
-  const escapedExpected = escapeInvisibleCharacters(oldString)
-  const escapedActual = escapeInvisibleCharacters(actualSegment)
-
-  throw new Error(
-    `${message}\n\n--- Semantic Diff ---\n${lineDiff}\n\n--- Invisible Characters View ---\nExpected: '${escapedExpected}'\nActual:   '${escapedActual}'\n\nActual raw content at lines ${startLine}-${endLine}:\n'''\n${actualSegment}\n'''`,
-  )
+  throw new Error("Found multiple matches for oldString. Provide more surrounding context to make the match unique.")
 }

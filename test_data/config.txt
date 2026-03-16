@@ -1,0 +1,5 @@
+server_port=8080
+database_url=localhost:5432
+debug=true
+api_key=SECRET_12345
+timeout=30
