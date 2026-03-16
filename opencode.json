@@ -1,9 +1,6 @@
 {
-  "id": "edit_cae",
-  "name": "Edit CAE",
-  "version": "0.1.0",
-  "description": "Coordinate-Anchored Editing for high reliability file modifications",
+  "$schema": "https://opencode.ai/config.json",
   "tools": {
-    "edit_cae": "./dist/index.js"
+    "edit_cae": true
   }
 }

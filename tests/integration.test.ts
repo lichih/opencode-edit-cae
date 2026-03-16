@@ -1,4 +1,4 @@
-import { edit_cae } from "../src/index.ts"
+import { edit_cae } from "../src/edit_cae.ts"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"

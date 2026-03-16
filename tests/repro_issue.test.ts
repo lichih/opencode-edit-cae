@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
-import { edit_cae } from "../src/index.ts"
+import { edit_cae } from "../src/edit_cae.ts"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 

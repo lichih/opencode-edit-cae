@@ -13551,7 +13551,7 @@ function tool(input) {
 }
 tool.schema = exports_external;
 
-// src/index.ts
+// src/edit_cae.ts
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
@@ -13734,6 +13734,17 @@ var edit_cae = tool({
     throw new Error("Found multiple matches for oldString. Provide more surrounding context to make the match unique.");
   }
 });
+
+// src/plugin.ts
+var EditCaePlugin = async () => {
+  return {
+    tool: {
+      edit_cae
+    }
+  };
+};
+var plugin_default = EditCaePlugin;
 export {
-  edit_cae
+  plugin_default as default,
+  EditCaePlugin
 };

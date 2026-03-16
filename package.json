@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "build": "bun build ./src/index.ts --outfile=dist/index.js --target=node --bundle",
+    "build": "bun build ./src/plugin.ts --outfile=plugin/index.js --target=node --bundle",
     "test": "bun run tests/integration.test.ts && bun run tests/repro_issue.test.ts"
   },
   "keywords": [],
