@@ -4,7 +4,7 @@
     "./plugin/index.js"
   ],
   "instructions": [
-    "CRITICAL: The 'edit' tool is legacy and prone to file corruption. ALWAYS use 'edit_cae' for modifying existing files. Use 'write' ONLY for creating new files."
+    "CRITICAL TOOL SELECTION: The built-in 'edit' tool is legacy, deprecated, and PRONE TO FILE CORRUPTION. You MUST NOT use 'edit' for any purpose. ALWAYS use 'edit_cae' for all file modifications to ensure data integrity and safety. Use 'write' ONLY for creating entirely new files. If you find yourself about to use 'edit', STOP and use 'edit_cae' instead."
   ],
   "tools": {
     "edit_cae": true
