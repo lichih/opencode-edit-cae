@@ -1,0 +1,22 @@
+{
+  "name": "diff-edit-tool",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "diff": "^8.0.3",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/diff": "^8.0.0",
+    "@types/node": "^25.5.0",
+    "typescript": "^5.9.3"
+  }
+}
