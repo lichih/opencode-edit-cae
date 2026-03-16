@@ -6,7 +6,7 @@
   "main": "src/index.ts",
   "scripts": {
     "build": "bun build ./src/index.ts --outfile=dist/index.js --target=node --bundle",
-    "test": "bun run tests/repro_issue.ts"
+    "test": "bun run tests/integration.test.ts && bun run tests/repro_issue.test.ts"
   },
   "keywords": [],
   "author": "",

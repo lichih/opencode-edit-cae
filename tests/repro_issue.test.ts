@@ -1,6 +1,9 @@
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
+import { fileURLToPath } from "node:url"
 import { edit_cae } from "../src/index.ts"
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // --- Mock of the old tool's problematic index calculation ---
 // Sourced from reference/edit.ts line 226/233
@@ -58,7 +61,7 @@ async function runRepro() {
   }
 
   console.log("\n=== Testing New Tool (edit_cae) ===")
-  const testFilePath = path.join(process.cwd(), "tests/repro.gitignore")
+  const testFilePath = path.join(__dirname, "fixtures/repro.gitignore")
   await fs.writeFile(testFilePath, content)
   
   const context = {
