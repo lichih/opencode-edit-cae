@@ -1,41 +1,37 @@
-# Edit CAE 實作完成報告
+# Edit CAE 實作與維護報告 (V12)
 
-## 1. 專案目標回顧
-實作一個高可靠性的檔案編輯工具 `edit_cae`，解決 AI 代理在自動化開發中常見的檔案損壞（Truncation）、座標偏移（Drift）以及換行符處理錯誤（CRLF issue）等痛點。
+## 1. 核心架構：平台修補與標準插件分流
+我們放棄了依賴黑科技勾子（Hook）或 Runtime 注入的方案，改用最符合開源維護規範的 **「補丁驅動型架構」**：
 
-## 2. 核心技術實作細節
+- **平台層 (Core Patch)**：針對 `registry.ts` 產出 `fix_registry_metadata.patch`。此補丁解開了 Opencode 插件系統對元數據（Metadata）的限制，使外部插件能像原生工具一樣觸發紅綠 Diff 視窗。
+- **工具層 (Pure Plugin)**：`edit_cae` 回歸為一個純淨、標準的插件，不再使用隱藏封包或 Hook。它專注於產出高品質的 Aider 式編輯數據。
+- **自動化 (Makefile)**：透過 `Makefile` 封裝整個上游同步流程，實現一鍵化更新。
 
-### 2.1 換行符感知與修正 (CRLF Awareness)
-- **問題**：原始 `edit.ts` 實作在計算字元索引時假設換行符固定為 1 字元 (`\n`)，導致在 `\r\n` 檔案中發生累積位移。
-- **解決方案**：實作 `getLineEnding` 偵測技術，在 `LineTrimmedReplacer` 與索引計算中動態套用換行符長度，確保 Hex 層級的精確對齊。
+## 2. 交付物清單
 
-### 2.2 多層安全搜尋層
-- **Simple Match**：第一優先級，精確匹配。
-- **LineTrimmed Match**：忽略首尾空白，應對 AI 產出的縮進微調。
-- **BlockAnchor Match**：利用程式碼塊的首尾行作為「邏輯錨點」，允許中間內容有細微差異。
-- **歧義保護**：若搜尋結果不唯一且無明確座標，系統會主動報錯 (Fail-Safe)，防止誤改重複項。
+### 核心檔案
+- `Makefile`: 專案核心控制器。支援 `OPENCODE_REPO` 與 `PREFIX` 參數。
+- `patches/fix_registry_metadata.patch`: 平台修復補丁。
+- `src/edit_cae.ts`: 高可靠性編輯邏輯。
+- `src/plugin.ts`: 標準插件進入點。
+- `opencode.json`: 專案級配置。
 
-### 2.3 數據完整性防護 (Safety Locks)
-- **Tail Integrity Check**：在執行任何替換前，鎖定並記錄編輯點之後的所有內容。寫入後強制比對，確保後方數據「原封不動」。
-- **Atomic Fsync Write**：
-  - 寫入臨時檔。
-  - 執行 `fsync` 確保物理磁碟同步。
-  - `rename` 替換原檔。
-- **Python Guard**：在寫入前掃描 Python 檔案，偵測並攔截混用 Tab/Space 的行為。
+### 文件
+- `README.md`: 快速上手與安裝說明。
+- `docs/project/MAINTENANCE.md`: 上游同步與維護指南。
+- `docs/spec/mission.md`: 重新定義的任務目標。
 
-## 3. 測試驗證
-透過 `tests/repro_issue.ts` 驗證了以下關鍵場景：
-- ✅ **CRLF 正確性**：成功修復了導致檔案損壞的 1-bit 位移 Bug。
-- ✅ **重複項辨識**：在有多個相同內容行時，正確識別目標位置。
-- ✅ **原子寫入**：確保寫入過程的穩定性。
+## 3. 已驗證流程
+執行 `make all` 已確認可完成以下循環：
+1.  **還原**：將 `_opencode` 目標檔案還原為乾淨狀態。
+2.  **修補**：套用 Registry 補丁。
+3.  **編譯**：使用 `bun` 編譯修正版的 Opencode。
+4.  **安裝核心**：安裝至 `~/.local/bin/opencode`。
+5.  **安裝插件**：編譯並安裝 `edit_cae` 至 `~/.opencode/plugins/`。
 
-## 4. 交付物清單
-- `dist/index.js`: 零依賴的編譯後插件核心。
-- `opencode.json`: 插件註冊配置文件。
-- `README.md`: 使用與開發說明文件。
-- `docs/`: 分類存放的技術規範與研究報告。
-- `src/index.ts`: 可維護的 TypeScript 源碼。
-- `tests/`: 包含整合測試與特定 Bug 重現腳本。
+## 4. 維護建議
+- **當 Opencode 官方更新時**：只需執行 `git pull` 並再次執行 `make all` 即可。
+- **當官方修復 Bug 時**：停止套用補丁（`make clean`），我們的插件無需任何修改即可繼續運作。
 
 ---
-**結論**：`edit_cae` 顯著提升了 Opencode 在自動化代碼修改任務中的安全性與準確率，已具備正式發佈之條件。
+**結論**：`edit_cae` 現在不僅是一個強大的工具，更配套了一套專業的維護體系，徹底解決了視覺與可靠性的不對稱問題。

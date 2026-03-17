@@ -1,29 +1,40 @@
-# Edit Cae
+# Edit CAE: Mission Statement
 
-Build a high-reliability file editing plugin for Opencode.
-
----
-
-Define goals
-
-Implement `edit_cae` as a high-reliability Opencode plugin.
-Address coordinate drift, truncation issues, and Python indentation sensitivity.
+## Core Objective
+To implement a high-reliability file editing system for Opencode that combines **Aider-style semantic anchoring** with **Industrial-grade data safety**, while ensuring a **seamless native visual experience**.
 
 ---
 
-Verify results
+## Technical Goals
 
-Prevent accidental loss of file content outside target ranges.
-Maintain correct indentation and PEP 8 compliance for Python files.
+### 1. Fix Platform Deficiencies (The Registry Patch)
+- Address the "Metadata Erasure" bug in Opencode's `registry.ts`.
+- Ensure that external plugins can pass structured metadata (Diff, FileStats) to the TUI.
+- Maintain this fix as a surgical patch to minimize upstream maintenance burden.
 
-Successfully apply edits even if line numbers shift.
-Replace the default tool functionality through `opencode.json` integration.
+### 2. High-Reliability Editing (The CAE Logic)
+- **Coordinate Drift Resilience**: Use multi-layer fuzzy matching (LineTrimmed, BlockAnchor) to locate targets even after content has shifted.
+- **CRLF Awareness**: Eliminate the legacy `+1` indexing bug by dynamically detecting and respecting line endings.
+- **Tail Integrity Guard**: Validate that content following the edit area remains bit-identical after the operation.
+- **Atomic fsync Writes**: Ensure data is physically committed to disk before finalizing the edit.
 
 ---
 
-Observe constraints
+## Success Criteria
 
-Develop using TypeScript or Node.js with Bun.
-Operate as an external plugin within this directory.
+### Reliability & Safety
+- [ ] ZERO accidental file truncations in edge cases (.gitignore without trailing newlines, CRLF files).
+- [ ] Automatic rollback if post-write verification fails.
+- [ ] Consistent Python indentation enforcement (prevent mixing tabs/spaces).
 
-Prioritize safety with atomic write patterns and post-write validation.
+### User Experience (Visual Parity)
+- [ ] Native Side-by-Side Diff window triggers automatically in the Opencode TUI.
+- [ ] Accurate addition/deletion statistics reported to the agent.
+- [ ] Seamless integration where the AI prioritizes `edit_cae` via system instructions.
+
+---
+
+## Maintenance & Distribution Strategy
+- **Standard Plugin Architecture**: `edit_cae` remains a standard plugin following the `@opencode-ai/plugin` spec.
+- **Patch-Driven Workflow**: Use a `Makefile` to automate the `Pull -> Patch -> Build -> Install` cycle for the Opencode core.
+- **Future-Proof**: If Opencode fixes the registry bug, the plugin survives without modification by simply dropping the patch.
