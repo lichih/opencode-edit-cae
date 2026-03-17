@@ -5,7 +5,7 @@ OPENCODE_REPO ?= $(CURDIR)/../_opencode
 PREFIX        ?= $(HOME)/.local
 BIN_DIR       := $(PREFIX)/bin
 BIN_NAME      := opencode
-PATCH_FILE    := $(CURDIR)/patches/fix_registry_metadata.patch
+PATCH_FILE    := $(CURDIR)/patches/opencode_visual_parity.patch
 
 # Platform detection
 UNAME_S := $(shell uname -s)
@@ -29,7 +29,7 @@ help:
 	@echo "Usage: make [target] [OPENCODE_REPO=/path/to/repo] [PREFIX=/install/path]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  patch          - Apply metadata-fix patch to Opencode core"
+	@echo "  patch          - Apply visual-parity patch to Opencode core (Registry & TUI)"
 	@echo "  build          - Compile the patched Opencode core"
 	@echo "  install        - Install the architecture-specific binary to $(BIN_DIR)"
 	@echo "  plugin-install - Build and install the edit_cae plugin to user space"
@@ -39,8 +39,9 @@ help:
 all: patch build install plugin-install
 
 patch:
-	@echo ">>> Reverting and applying registry patch to $(OPENCODE_REPO)..."
+	@echo ">>> Reverting and applying visual parity patch to $(OPENCODE_REPO)..."
 	cd $(OPENCODE_REPO) && git checkout packages/opencode/src/tool/registry.ts
+	cd $(OPENCODE_REPO) && git checkout packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
 	cd $(OPENCODE_REPO) && git apply $(PATCH_FILE)
 
 build:
@@ -64,4 +65,5 @@ plugin-install:
 clean:
 	@echo ">>> Cleaning up..."
 	cd $(OPENCODE_REPO) && git checkout packages/opencode/src/tool/registry.ts
+	cd $(OPENCODE_REPO) && git checkout packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
 	rm -rf plugin/
