@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { trimDiff, getLineEnding, normalize, LineTrimmedReplacer, BlockAnchorReplacer } from "../src/edit_cae.ts";
+import { trimDiff, getLineEnding, normalize, LineTrimmedReplacer, BlockAnchorReplacer, validatePythonIndentation } from "../src/edit_cae.ts";
 
 describe("Edit CAE Unit Tests", () => {
   describe("Helper Functions", () => {
@@ -24,6 +24,11 @@ describe("Edit CAE Unit Tests", () => {
     test("getLineEnding: should detect CRLF correctly", () => {
       expect(getLineEnding("line1\r\nline2")).toBe("\r\n");
       expect(getLineEnding("line1\nline2")).toBe("\n");
+    });
+
+    test("validatePythonIndentation: should throw on mixed tabs and spaces", () => {
+      expect(() => validatePythonIndentation("  space\n\ttab")).toThrow();
+      expect(() => validatePythonIndentation("  space\n  space")).not.toThrow();
     });
   });
 

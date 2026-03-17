@@ -7,6 +7,21 @@ BIN_DIR       := $(PREFIX)/bin
 BIN_NAME      := opencode
 PATCH_FILE    := $(CURDIR)/patches/fix_registry_metadata.patch
 
+# Platform detection
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+
+ifeq ($(UNAME_S),Darwin)
+    ifeq ($(UNAME_M),arm64)
+        ARCH_BIN := dist/opencode-darwin-arm64/bin/opencode
+    else
+        ARCH_BIN := dist/opencode-darwin-x64/bin/opencode
+    endif
+else
+    # Default to linux arm64 if not darwin (adjust as needed)
+    ARCH_BIN := dist/opencode-linux-arm64/bin/opencode
+endif
+
 .PHONY: all patch build install plugin-install clean help
 
 help:
@@ -16,7 +31,7 @@ help:
 	@echo "Targets:"
 	@echo "  patch          - Apply metadata-fix patch to Opencode core"
 	@echo "  build          - Compile the patched Opencode core"
-	@echo "  install        - Install the patched binary to $(BIN_DIR)"
+	@echo "  install        - Install the architecture-specific binary to $(BIN_DIR)"
 	@echo "  plugin-install - Build and install the edit_cae plugin to user space"
 	@echo "  all            - Run all of the above"
 	@echo "  clean          - Revert core patches and clean local build"
@@ -33,11 +48,11 @@ build:
 	cd $(OPENCODE_REPO) && bun install && bun run --cwd packages/opencode build
 
 install:
-	@echo ">>> Installing binary to $(BIN_DIR)/$(BIN_NAME)..."
+	@echo ">>> Installing binary $(ARCH_BIN) to $(BIN_DIR)/$(BIN_NAME)..."
 	mkdir -p $(BIN_DIR)
-	cp $(OPENCODE_REPO)/packages/opencode/bin/opencode $(BIN_DIR)/$(BIN_NAME)
+	cp $(OPENCODE_REPO)/packages/opencode/$(ARCH_BIN) $(BIN_DIR)/$(BIN_NAME)
 	chmod +x $(BIN_DIR)/$(BIN_NAME)
-	@echo "✅ Native core updated."
+	@echo "✅ Native core updated with architecture-specific binary."
 
 plugin-install:
 	@echo ">>> Building and installing edit_cae plugin..."

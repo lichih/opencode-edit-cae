@@ -13553,7 +13553,6 @@ config(en_default());
 // src/edit_cae.ts
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as crypto from "node:crypto";
 
 // node_modules/diff/libesm/diff/base.js
 class Diff {
@@ -14364,11 +14363,66 @@ function splitLines(text) {
 }
 
 // src/edit_cae.ts
-function normalize(str) {
-  if (typeof str !== "string")
+function normalize(text) {
+  if (typeof text !== "string")
     return "";
-  return str.replace(/\r\n/g, `
+  return text.replaceAll(`\r
+`, `
 `);
+}
+function isPythonFile(filePath) {
+  return filePath.endsWith(".py");
+}
+function validatePythonIndentation(content) {
+  const lines = content.split(`
+`);
+  let usesTabs = false;
+  let usesSpaces = false;
+  for (const line of lines) {
+    const match = line.match(/^[\t ]+/);
+    if (!match)
+      continue;
+    if (match[0].includes("\t"))
+      usesTabs = true;
+    if (match[0].includes(" "))
+      usesSpaces = true;
+    if (usesTabs && usesSpaces) {
+      throw new Error("Mixed tabs and spaces detected in Python file. Indentation must be consistent.");
+    }
+  }
+}
+function getLineEnding(text) {
+  if (typeof text !== "string")
+    return `
+`;
+  return text.includes(`\r
+`) ? `\r
+` : `
+`;
+}
+async function safeWrite(filePath, content, originalContent, matchIndex, matchLength) {
+  const tempPath = `${filePath}.${Math.random().toString(36).substring(7)}.tmp`;
+  const originalTail = originalContent.substring(matchIndex + matchLength);
+  const newTail = content.substring(content.length - originalTail.length);
+  if (originalTail !== newTail) {
+    throw new Error("CAE Safety Check Failed: File tail corruption detected. Aborting write.");
+  }
+  try {
+    const fileHandle = await fs.open(tempPath, "w");
+    await fileHandle.writeFile(content, "utf8");
+    await fileHandle.sync();
+    await fileHandle.close();
+    const writtenContent = await fs.readFile(tempPath, "utf8");
+    if (writtenContent !== content) {
+      throw new Error("CAE Verification failed: Written content mismatch.");
+    }
+    await fs.rename(tempPath, filePath);
+  } catch (error48) {
+    try {
+      await fs.unlink(tempPath);
+    } catch {}
+    throw error48;
+  }
 }
 function trimDiff(diff) {
   if (typeof diff !== "string" || !diff)
@@ -14389,49 +14443,27 @@ function trimDiff(diff) {
   }
   if (min === Infinity || min === 0)
     return diff;
-  return lines.map((line) => {
+  const trimmedLines = lines.map((line) => {
     if ((line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) && !line.startsWith("---") && !line.startsWith("+++")) {
-      return line[0] + line.slice(1 + min);
+      const prefix = line[0];
+      const content = line.slice(1);
+      return prefix + content.slice(min);
     }
     return line;
-  }).join(`
+  });
+  return trimmedLines.join(`
 `);
-}
-async function safeWrite(filePath, content, originalContent, matchIndex, matchLength) {
-  const tempPath = `${filePath}.${crypto.randomBytes(4).toString("hex")}.tmp`;
-  const originalTail = originalContent.substring(matchIndex + matchLength);
-  const newTail = content.substring(content.length - originalTail.length);
-  if (originalTail !== newTail)
-    throw new Error("Safety Check Failed: File tail corruption detected.");
-  try {
-    const fileHandle = await fs.open(tempPath, "w");
-    await fileHandle.writeFile(content, "utf8");
-    await fileHandle.sync();
-    await fileHandle.close();
-    const writtenContent = await fs.readFile(tempPath, "utf8");
-    if (writtenContent !== content)
-      throw new Error("Verification failed: Written content mismatch.");
-    await fs.rename(tempPath, filePath);
-  } catch (error48) {
-    try {
-      await fs.unlink(tempPath);
-    } catch {}
-    throw error48;
-  }
-}
-function getLineEnding(content) {
-  return content.includes(`\r
-`) ? `\r
-` : `
-`;
 }
 var SimpleReplacer = function* (_content, find) {
   yield find;
 };
 var LineTrimmedReplacer = function* (content, find) {
-  const lineEnding = getLineEnding(content);
-  const originalLines = content.split(/\r?\n/);
-  const searchLines = find.split(/\r?\n/);
+  const originalLines = content.split(`
+`);
+  const searchLines = find.split(`
+`);
+  const leLen = content.includes(`\r
+`) ? 2 : 1;
   if (searchLines[searchLines.length - 1] === "")
     searchLines.pop();
   for (let i = 0;i <= originalLines.length - searchLines.length; i++) {
@@ -14445,20 +14477,25 @@ var LineTrimmedReplacer = function* (content, find) {
     if (matches) {
       let startIdx = 0;
       for (let k = 0;k < i; k++)
-        startIdx += originalLines[k].length + lineEnding.length;
+        startIdx += originalLines[k].length + leLen;
       let endIdx = startIdx;
       for (let k = 0;k < searchLines.length; k++)
-        endIdx += originalLines[i + k].length + (k < searchLines.length - 1 ? lineEnding.length : 0);
+        endIdx += originalLines[i + k].length + (k < searchLines.length - 1 ? leLen : 0);
       yield content.substring(startIdx, endIdx);
     }
   }
 };
 var BlockAnchorReplacer = function* (content, find) {
-  const lineEnding = getLineEnding(content);
-  const originalLines = content.split(/\r?\n/);
-  const searchLines = find.split(/\r?\n/);
+  const originalLines = content.split(`
+`);
+  const searchLines = find.split(`
+`);
+  const leLen = content.includes(`\r
+`) ? 2 : 1;
   if (searchLines.length < 3)
     return;
+  if (searchLines[searchLines.length - 1] === "")
+    searchLines.pop();
   const first = searchLines[0].trim();
   const last = searchLines[searchLines.length - 1].trim();
   for (let i = 0;i < originalLines.length; i++) {
@@ -14468,10 +14505,10 @@ var BlockAnchorReplacer = function* (content, find) {
       if (originalLines[j].trim() === last) {
         let startIdx = 0;
         for (let k = 0;k < i; k++)
-          startIdx += originalLines[k].length + lineEnding.length;
+          startIdx += originalLines[k].length + leLen;
         let endIdx = startIdx;
-        for (let k = i;j && k <= j; k++)
-          endIdx += originalLines[k].length + (k < j ? lineEnding.length : 0);
+        for (let k = i;k <= j; k++)
+          endIdx += originalLines[k].length + (k < j ? leLen : 0);
         yield content.substring(startIdx, endIdx);
         break;
       }
@@ -14479,7 +14516,7 @@ var BlockAnchorReplacer = function* (content, find) {
   }
 };
 var edit_cae = tool({
-  description: "High-reliability file editing tool. Uses Aider-style semantic anchoring and atomic safety checks to prevent corruption.",
+  description: "REQUIRED for all file modifications. High-reliability tool using Aider-style semantic anchoring and atomic safety checks to prevent code corruption. Standard 'edit' is legacy and dangerous.",
   args: {
     filePath: exports_external.string().describe("The absolute path to the file to modify"),
     oldString: exports_external.string().describe("The text to replace"),
@@ -14490,14 +14527,19 @@ var edit_cae = tool({
     const { filePath, oldString, newString, replaceAll = false } = args;
     const absPath = path.isAbsolute(filePath) ? filePath : path.join(context.directory, filePath);
     const contentOld = await fs.readFile(absPath, "utf8");
+    const ending = getLineEnding(contentOld);
     const normalizedOld = normalize(oldString);
     const normalizedNew = normalize(newString);
+    if (isPythonFile(absPath)) {
+      validatePythonIndentation(normalizedNew);
+      validatePythonIndentation(contentOld);
+    }
     let foundMatch = null;
+    let notFound = true;
+    const replacers = [SimpleReplacer, LineTrimmedReplacer, BlockAnchorReplacer];
     let contentNew = "";
     let matchIndex = -1;
     let matchLength = -1;
-    let notFound = true;
-    const replacers = [SimpleReplacer, LineTrimmedReplacer, BlockAnchorReplacer];
     for (const replacer of replacers) {
       for (const search of replacer(contentOld, normalizedOld)) {
         const index = contentOld.indexOf(search);
@@ -14506,32 +14548,40 @@ var edit_cae = tool({
         notFound = false;
         if (replaceAll) {
           contentNew = contentOld.replaceAll(search, normalizedNew);
-          matchIndex = 0;
-          matchLength = contentOld.length;
           foundMatch = { search, index: 0 };
           break;
         }
-        if (contentOld.lastIndexOf(search) !== index)
+        const lastIndex = contentOld.lastIndexOf(search);
+        if (index !== lastIndex)
           continue;
         foundMatch = { search, index };
+        contentNew = contentOld.substring(0, index) + normalizedNew + contentOld.substring(index + search.length);
         matchIndex = index;
         matchLength = search.length;
-        contentNew = contentOld.substring(0, index) + normalizedNew + contentOld.substring(index + search.length);
         break;
       }
       if (foundMatch)
         break;
     }
     if (foundMatch) {
-      const diff = trimDiff(createTwoFilesPatch(absPath, absPath, contentOld, contentNew));
+      if (isPythonFile(absPath)) {
+        validatePythonIndentation(contentNew);
+      }
+      const diff = trimDiff(createTwoFilesPatch(absPath, absPath, normalize(contentOld), normalize(contentNew)));
       const diffResults = diffLines(contentOld, contentNew);
       const additions = diffResults.reduce((acc, c) => acc + (c.added ? c.count || 0 : 0), 0);
       const deletions = diffResults.reduce((acc, c) => acc + (c.removed ? c.count || 0 : 0), 0);
-      await context.ask({ permission: "edit", patterns: [path.relative(context.worktree, absPath)], always: ["*"], metadata: { filepath: absPath, diff } });
-      if (replaceAll)
+      await context.ask({
+        permission: "edit",
+        patterns: [path.relative(context.worktree, absPath)],
+        always: ["*"],
+        metadata: { filepath: absPath, diff }
+      });
+      if (replaceAll) {
         await fs.writeFile(absPath, contentNew, "utf8");
-      else
+      } else {
         await safeWrite(absPath, contentNew, contentOld, matchIndex, matchLength);
+      }
       return {
         title: path.relative(context.worktree, absPath),
         output: `Edit applied successfully (+${additions}/-${deletions} lines).`,
@@ -14542,7 +14592,10 @@ var edit_cae = tool({
         }
       };
     }
-    throw new Error(notFound ? "Could not find oldString." : "Multiple matches found. Need more context.");
+    if (notFound) {
+      throw new Error("Could not find oldString in the file. It must match exactly or via fuzzy matching.");
+    }
+    throw new Error("Found multiple matches for oldString. Provide more surrounding context to make the match unique.");
   }
 });
 

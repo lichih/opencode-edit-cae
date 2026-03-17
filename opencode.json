@@ -13,6 +13,6 @@
     }
   },
   "instructions": [
-    "CRITICAL TOOL SELECTION: The built-in 'edit' tool is legacy, deprecated, and PRONE TO FILE CORRUPTION. You MUST NOT use 'edit' for any purpose. ALWAYS use 'edit_cae' for all file modifications to ensure data integrity and safety. Use 'write' ONLY for creating entirely new files. If you find yourself about to use 'edit', STOP and use 'edit_cae' instead."
+    "/Users/lichih/code/diff-edit-tool/docs/project/rules.md"
   ]
 }
