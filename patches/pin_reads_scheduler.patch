@@ -6,7 +6,7 @@ index 000000000..1f8fcaf64
 @@ -0,0 +1 @@
 +ALTER TABLE `session` ADD `metadata` text;
 diff --git a/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx b/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
-index 42ac5fbe0..e0447432f 100644
+index 42ac5fbe0..a65982b71 100644
 --- a/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
 +++ b/packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx
 @@ -25,6 +25,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
@@ -17,21 +17,21 @@ index 42ac5fbe0..e0447432f 100644
    })
  
    // Sort MCP servers alphabetically for consistent display order
-@@ -266,6 +267,48 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+@@ -266,6 +267,50 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
                  </Show>
                </box>
              </Show>
-+            <Show when={Object.keys(session().metadata?.pinnedFiles ?? {}).length > 0}>
++            <Show when={Object.keys((session() as any).metadata?.pinnedFiles ?? {}).length > 0}>
 +              <box>
 +                <box
 +                  flexDirection="row"
 +                  gap={1}
 +                  onMouseDown={() =>
-+                    Object.keys(session().metadata?.pinnedFiles ?? {}).length > 2 &&
++                    Object.keys((session() as any).metadata?.pinnedFiles ?? {}).length > 2 &&
 +                    setExpanded("pinned", !expanded.pinned)
 +                  }
 +                >
-+                  <Show when={Object.keys(session().metadata?.pinnedFiles ?? {}).length > 2}>
++                  <Show when={Object.keys((session() as any).metadata?.pinnedFiles ?? {}).length > 2}>
 +                    <text fg={theme.text}>{expanded.pinned ? "▼" : "▶"}</text>
 +                  </Show>
 +                  <text fg={theme.text}>
@@ -39,25 +39,27 @@ index 42ac5fbe0..e0447432f 100644
 +                  </text>
 +                </box>
 +                <Show
-+                  when={Object.keys(session().metadata?.pinnedFiles ?? {}).length <= 2 || expanded.pinned}
++                  when={Object.keys((session() as any).metadata?.pinnedFiles ?? {}).length <= 2 || expanded.pinned}
 +                >
-+                  <For each={Object.values(session().metadata?.pinnedFiles ?? {})}>
++                  <For each={Object.values((session() as any).metadata?.pinnedFiles ?? {})}>
 +                    {(item: any) => (
-+                      <box flexDirection="row" gap={1} justifyContent="space-between">
-+                        <text
-+                          fg={
-+                            item.score > 60
-+                              ? theme.success
-+                              : item.score > 20
-+                                ? theme.warning
-+                                : theme.error
-+                          }
-+                          wrapMode="none"
-+                        >
-+                          • {path.basename(item.path)}
-+                        </text>
-+                        <text fg={theme.textMuted}>{item.score}</text>
-+                      </box>
++                      <Show when={item && item.path}>
++                        <box flexDirection="row" gap={1} justifyContent="space-between">
++                          <text
++                            fg={
++                              item.score > 60
++                                ? theme.success
++                                : item.score > 20
++                                  ? theme.warning
++                                  : theme.error
++                            }
++                            wrapMode="none"
++                          >
++                            • {path.basename(item.path)}
++                          </text>
++                          <text fg={theme.textMuted}>{item.score}</text>
++                        </box>
++                      </Show>
 +                    )}
 +                  </For>
 +                </Show>
@@ -67,10 +69,26 @@ index 42ac5fbe0..e0447432f 100644
          </scrollbox>
  
 diff --git a/packages/opencode/src/session/index.ts b/packages/opencode/src/session/index.ts
-index 0879fe87f..fa8e886d7 100644
+index 0879fe87f..c0323853e 100644
 --- a/packages/opencode/src/session/index.ts
 +++ b/packages/opencode/src/session/index.ts
-@@ -149,6 +149,7 @@ export namespace Session {
+@@ -76,6 +76,7 @@ export namespace Session {
+       share,
+       revert,
+       permission: row.permission ?? undefined,
++      metadata: row.metadata ?? undefined,
+       time: {
+         created: row.time_created,
+         updated: row.time_updated,
+@@ -102,6 +103,7 @@ export namespace Session {
+       summary_diffs: info.summary?.diffs,
+       revert: info.revert ?? null,
+       permission: info.permission,
++      metadata: info.metadata ?? null,
+       time_created: info.time.created,
+       time_updated: info.time.updated,
+       time_compacting: info.time.compacting,
+@@ -149,6 +151,7 @@ export namespace Session {
          archived: z.number().optional(),
        }),
        permission: PermissionNext.Ruleset.optional(),
@@ -78,7 +96,7 @@ index 0879fe87f..fa8e886d7 100644
        revert: z
          .object({
            messageID: MessageID.zod,
-@@ -399,6 +400,27 @@ export namespace Session {
+@@ -399,6 +402,27 @@ export namespace Session {
      },
    )
  
@@ -234,6 +252,61 @@ index b3229edd1..d4a301526 100644
      ...Timestamps,
      time_compacting: integer(),
      time_archived: integer(),
+diff --git a/packages/opencode/src/tool/pin.ts b/packages/opencode/src/tool/pin.ts
+new file mode 100644
+index 000000000..946f74fb9
+--- /dev/null
++++ b/packages/opencode/src/tool/pin.ts
+@@ -0,0 +1,49 @@
++import { z } from "zod"
++import { Tool } from "./tool"
++import { Session } from "../session"
++import { Filesystem } from "../util/filesystem"
++
++export const PinReadsTool = Tool.define("pin-reads", {
++  description: "Pin a list of files to the context for continuous monitoring. Use an empty array to unpin all files.",
++  parameters: z.object({
++    paths: z.array(z.string()).describe("Absolute paths of files to pin."),
++  }),
++  execute: async (args, ctx) => {
++    const session = await Session.get(ctx.sessionID)
++    const metadata = session.metadata ?? {}
++    const pinnedFiles = (metadata.pinnedFiles as Record<string, any>) ?? {}
++
++    if (args.paths.length === 0) {
++      delete metadata.pinnedFiles
++      await Session.updateMetadata({ sessionID: ctx.sessionID, metadata })
++      return {
++        title: "Pin Reads",
++        metadata: { pinnedCount: 0 },
++        output: "All files unpinned.",
++      }
++    }
++
++    const results: string[] = []
++    for (const path of args.paths) {
++      if (!(await Filesystem.exists(path))) {
++        results.push(`Error: File ${path} does not exist.`)
++        continue
++      }
++      
++      pinnedFiles[path] = {
++        path,
++        score: 100, // 初始分數
++        lastSeenTurn: ctx.messages.length,
++      }
++      results.push(`Pinned: ${path}`)
++    }
++
++    metadata.pinnedFiles = pinnedFiles
++    await Session.updateMetadata({ sessionID: ctx.sessionID, metadata })
++    return {
++      title: "Pin Reads",
++      metadata: { pinnedCount: results.length },
++      output: results.join("\n"),
++    }
++  },
++})
 diff --git a/packages/opencode/src/tool/registry.ts b/packages/opencode/src/tool/registry.ts
 index 3ea242a29..3f54e04cf 100644
 --- a/packages/opencode/src/tool/registry.ts
