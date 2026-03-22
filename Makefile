@@ -41,7 +41,7 @@ all: patch build install plugin-install
 
 patch:
 	@echo ">>> Resetting $(OPENCODE_REPO) to $(OPENCODE_TAG)..."
-	cd $(OPENCODE_REPO) && git checkout . && git checkout $(OPENCODE_TAG)
+	cd $(OPENCODE_REPO) && git reset --hard $(OPENCODE_TAG) && git clean -fd
 	@echo ">>> Applying patches to $(OPENCODE_REPO)..."
 	# [PAUSED] 測試後對 opencode agent 行為有不良影響，暫不套用
 	# cd $(OPENCODE_REPO) && git apply $(CURDIR)/patches/remove_plan_mode_reminder.patch
