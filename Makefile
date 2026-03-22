@@ -1,11 +1,12 @@
 # --- Configuration ---
 # Path to the Opencode source repository
-OPENCODE_REPO ?= $(CURDIR)/../_opencode
+OPENCODE_REPO ?= $(CURDIR)/opencode
+# Tag to use as the base for building
+OPENCODE_TAG  ?= v1.2.27
 # Installation prefix (default: ~/.local)
 PREFIX        ?= $(HOME)/.local
 BIN_DIR       := $(PREFIX)/bin
 BIN_NAME      := opencode
-PATCH_FILE    := $(CURDIR)/patches/opencode_visual_parity.patch
 
 # Platform detection
 UNAME_S := $(shell uname -s)
@@ -29,7 +30,7 @@ help:
 	@echo "Usage: make [target] [OPENCODE_REPO=/path/to/repo] [PREFIX=/install/path]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  patch          - Apply visual-parity patch to Opencode core (Registry & TUI)"
+	@echo "  patch          - Reset Opencode to $(OPENCODE_TAG) and apply patches"
 	@echo "  build          - Compile the patched Opencode core"
 	@echo "  install        - Install the architecture-specific binary to $(BIN_DIR)"
 	@echo "  plugin-install - Build and install the edit_cae plugin to user space"
@@ -39,10 +40,17 @@ help:
 all: patch build install plugin-install
 
 patch:
-	@echo ">>> Reverting and applying visual parity patch to $(OPENCODE_REPO)..."
-	cd $(OPENCODE_REPO) && git checkout packages/opencode/src/tool/registry.ts
-	cd $(OPENCODE_REPO) && git checkout packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
-	cd $(OPENCODE_REPO) && git apply $(PATCH_FILE)
+	@echo ">>> Resetting $(OPENCODE_REPO) to $(OPENCODE_TAG)..."
+	cd $(OPENCODE_REPO) && git checkout . && git checkout $(OPENCODE_TAG)
+	@echo ">>> Applying patches to $(OPENCODE_REPO)..."
+	# [PAUSED] 測試後對 opencode agent 行為有不良影響，暫不套用
+	# cd $(OPENCODE_REPO) && git apply $(CURDIR)/patches/remove_plan_mode_reminder.patch
+	# [ACTIVE] 恢復視覺對位：讓 edit_cae 能顯示紅綠 Diff 視窗
+	cd $(OPENCODE_REPO) && git apply $(CURDIR)/patches/tui_visual_parity.patch
+	# [ACTIVE] 修復 Registry：確保 Metadata 傳遞完整
+	cd $(OPENCODE_REPO) && git apply $(CURDIR)/patches/fix_registry_metadata.patch
+	# [ACTIVE] 實作 Pin-Reads：動態上下文調度系統
+	cd $(OPENCODE_REPO) && git apply $(CURDIR)/patches/pin_reads_scheduler.patch
 
 build:
 	@echo ">>> Building Opencode..."
@@ -53,6 +61,9 @@ install:
 	mkdir -p $(BIN_DIR)
 	cp $(OPENCODE_REPO)/packages/opencode/$(ARCH_BIN) $(BIN_DIR)/$(BIN_NAME)
 	chmod +x $(BIN_DIR)/$(BIN_NAME)
+ifeq ($(UNAME_S),Darwin)
+	codesign -f -s - $(BIN_DIR)/$(BIN_NAME)
+endif
 	@echo "✅ Native core updated with architecture-specific binary."
 
 plugin-install:
@@ -64,6 +75,5 @@ plugin-install:
 
 clean:
 	@echo ">>> Cleaning up..."
-	cd $(OPENCODE_REPO) && git checkout packages/opencode/src/tool/registry.ts
-	cd $(OPENCODE_REPO) && git checkout packages/opencode/src/cli/cmd/tui/routes/session/index.tsx
+	cd $(OPENCODE_REPO) && git checkout . && git checkout $(OPENCODE_TAG)
 	rm -rf plugin/
