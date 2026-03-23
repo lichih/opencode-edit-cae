@@ -5,11 +5,22 @@
     "moduleResolution": "bundler",
     "strict": true,
     "skipLibCheck": true,
-    "outDir": "./dist",
     "baseUrl": ".",
     "paths": {
-      "*": ["src/*"]
-    }
+      "*/tool": ["./tests/mocks/tool.ts"],
+      "*/session": ["./tests/mocks/session.ts"],
+      "*/bus": ["./tests/mocks/bus.ts"],
+      "*/file": ["./tests/mocks/file.ts"],
+      "*/file/watcher": ["./tests/mocks/watcher.ts"],
+      "*/file/time": ["./tests/mocks/time.ts"],
+      "*/util/filesystem": ["./tests/mocks/filesystem.ts"],
+      "*/project/instance": ["./tests/mocks/instance.ts"],
+      "*/lsp": ["./tests/mocks/lsp.ts"],
+      "*/external-directory": ["./tests/mocks/external.ts"],
+      "*/edit.txt": ["./tests/mocks/edit_text.ts"],
+      "@/*": ["./tests/mocks/*"]
+    },
+    "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "1.3.0/**/*", "tests/**/*"]
 }

@@ -1,67 +1,51 @@
-# Mission: Pin-Reads Context System (Dynamic Context Scheduler) - V4
+# Mission: Pin-Reads Context System (Dynamic Context Scheduler) - V11
 
 ## 1. 核心願景 (Core Vision)
-解決 LLM 在 **Plan Mode** 下由於嚴格的唯讀限制所導致的「行為遲疑」。透過建立一個動態的、受控的「工作記憶區」，讓模型在每一輪對話中都能獲取關鍵檔案的最新狀態，同時確保 Context Token 不會因為重複注入而爆炸。
+解決 LLM 在 **Plan Mode** 與 **Build Mode** 下由於檔案內容陳舊或 Context 膨脹導致的行為遲疑與錯誤。透過「透明釘選 (Transparent Pinning)」機制，將 `read` 工具轉化為動態監控引擎，自動追蹤關鍵檔案的最新狀態，並在每輪對話中智慧地管理 Context 注入。
 
-本功能採用 **「核心補丁化 (Patch-based Integration)」** 的維護策略，所有對 `opencode` 核心的修改都將封裝為 `Makefile` 自動套用的 patch，以維持核心的清潔。
+## 2. 核心技術規格 (Technical Specs)
 
-## 2. 核心功能規格 (Technical Specs)
+### A. 工具替代與安全門檻 (`read` Tool Override)
+- **1:1 參數相容**：維持原始 `read` 參數 `filePath`, `offset`, `limit`。
+- **安全邊界 (Safety Boundary)**：**50 KB** 或 **2000 行**。
+- **讀取行為分支**：
+    1.  **全量讀取 (Full Read)** (`offset` 為空/1 且未指定 `limit`)：
+        -   **小於邊界**：讀取內容，不直接輸出給模型，改為返回 `[File pinned: /path/to/file]`。同步更新全域 `PinnedRegistry`。
+        -   **超過邊界**：**強制失敗 (Hard Fail)**。返回檔案資訊（大小與總行數），要求模型帶入 `offset`/`limit` 進行分段精讀。
+    2.  **局部讀取 (Partial Read)** (指定了 `offset > 1` 或 `limit`)：
+        -   執行原生讀取邏輯，返回原始 XML 格式內容。
+        -   **不執行釘選**，但若檔案已在 `PinnedRegistry` 中，則更新其 `lastAccessTime`（LRU 續約）。
 
-### A. LLM 自主工具 (`pin-reads`)
-- **功能**：允許模型傳入 `paths: string[]`。
-- **作用**：將檔案路徑存入 `Session.metadata.pinnedFiles`，初始分數設定為 100。
-- **清空**：傳入 `[]` 時，清空所有釘選紀錄。
+### B. 全域追蹤器 (`PinnedRegistry`)
+- **存放位置**：實作於 `src/read.ts` 的模組層級全域變數。
+- **資料結構**：`Map<string, { mtime: number, lastAccess: number }>`。
+- **容量限制**：最多 100 個檔案，採 **LRU (Least Recently Used)** 淘汰機制。
 
-### B. 瞬態注入機制 (Ephemeral Injection & JIT)
-- **注入點**：`prompt.ts -> insertReminders`。
-- **清理歷史**：在注入新內容前，遍歷並剔除對話歷史中舊有的 `pinned-reads` 標記節點，確保 Token 總數受控。
-- **即時讀取 (JIT)**：不將檔案內容存入 DB，僅在發送 Request 前從硬碟讀取最新原始碼，確保 LLM 看到的是實時狀態。
-- **配額管理 (Quota)**：上限 50,000 字元。依分數高低排序讀取，超出則執行截斷 (Truncation)。
-
-### C. 衰減與心跳續約 (Decay & Heartbeat)
-- **每輪衰減 (Turn Decay)**：每過一個回合，所有釘選檔案分數 -20。
-- **心跳標籤**：模型需在輸出中包含 `<pin-heartbeat>path/to/file</pin-heartbeat>`。
-- **續約邏輯**：被標記的路徑分數 +40 (上限 100)。
-- **生命週期**：分數歸零的檔案將從 `metadata` 中自動移除。
-
-### D. UI 整合 (TUI Sidebar)
-- 修改 `sidebar.tsx` 訂閱 `session.metadata.pinnedFiles`。
-- 視覺化顯示：綠色 (60-100)、黃色 (20-59)、紅色 (<20) 的分數健康度。
+### C. 智慧注入與歷史抑制 (`prompt.ts -> insertReminders`)
+- **每輪巡檢**：在準備 Prompt 前，遍歷 Registry，透過 `fs.stat` 取得最新 `mtime`。
+- **歷史抑制 (Suppression)**：
+    - 掃描對話歷史 (`ctx.messages`)。
+    - 若發現任何 `read` 工具產出的釘選標記或舊有的 `<pinned-file>` 標記，若其對應路徑已有更新或已存在於當前輪次注入計畫中，則將其隱藏或抑制，防止重複與過期內容。
+- **JIT 注入 (Just-In-Time)**：
+    - 在最新輪次的 Reminders 中，注入所有釘選檔案的最新內容。
+    - 使用 XML 標籤包裹：`<pinned-file path="...">...</pinned-file>`。
+- **Token 配額**：注入總量上限設為 50,000 字元。超出時依 `lastAccess` 排序截斷。
 
 ## 3. 實作路徑 (Implementation Roadmap)
 
-- **Phase 1: 核心開發 (opencode/ 子目錄)**
-  - 在 `prompt.ts` 實作 JIT 注入與歷史清理。
-  - 在 `processor.ts` 實作心跳標籤解析與分數衰減邏輯。
-  - 在 `tool/` 實作 `pin-reads` 工具並註冊。
-  - 更新側邊欄組件。
+### Phase 1: 基準建立 (Baseline Sync)
+- 將 `opencode` 的 `read.ts` 與 `read.txt` 複製到 `src/1.3.0/` 作為 patch 基準。
 
-- **Phase 2: 補丁生成與整合 (Makefile Integration)**
-  - 於 `opencode/` 執行 `git diff` 生成 `patches/pin_reads_scheduler.patch`。
-  - 修改根目錄 `Makefile` 的 `patch` target，將新補丁加入自動套用清單。
+### Phase 2: 核心開發 (Plugin Development)
+- 在 `src/read.ts` 實作 `PinnedRegistry` 與「安全邊界/強制失敗」邏輯。
+- 在 `src/prompt.ts`（透過 Patch 模式）實作歷史抑制與增量注入。
 
-- **Phase 3: 自動化驗證 (Validation)**
-  - 執行 `make clean && make all`。
-  - 驗證系統重置後能成功自動套用 `Pin-Reads` 功能，且編譯成功。
+### Phase 3: 補丁生成與驗證 (Integration)
+- 執行 `git diff` 產生 `patches/edit_cae_v1.3.0.patch`。
+- 驗證 `make patch && make build` 流程。
+- 執行單元測試，確保大檔案讀取會觸發正確的失敗引導與大小提示。
 
 ## 4. 驗證機制 (Verification)
-
-### A. 資料庫狀態審計 (SQL Audit)
-- **目的**：驗證分數系統與持久化。
-- **操作**：使用 `sqlite3` 檢查 `SessionTable` 的 `metadata`。
-- **指令參考**：
-  ```bash
-  sqlite3 "$HOME/Library/Application Support/opencode/opencode.db" \
-  "SELECT metadata FROM session ORDER BY time_updated DESC LIMIT 1;"
-  ```
-
-### B. Context 膨脹檢查 (Part Integrity)
-- **目的**：驗證「瞬態注入」是否成功避免 Token 爆炸。
-- **操作**：查詢 `PartTable` 中 `type='text'` 且包含 `pinned-files` 標記的內容，確認歷史紀錄中無重複大塊內容。
-
-### C. 自動化單元測試 (Unit Testing)
-- **位置**：`opencode/packages/opencode/test/session/pin-reads.test.ts` (待建立)
-- **測試點**：`insertReminders` JIT 邏輯、心跳標籤正則提取、分數衰減邊界處理。
-
-### D. 整合驗證 (Integration Verification)
-- 確保補丁無衝突套用，且 TUI 側邊欄能正確呈現釘選清單與分數。
+- **行為驗證**：模型呼叫 `read` 大檔案時是否收到大小提示並重新精讀。
+- **Context 驗證**：檢查發送給模型的最後一個 Prompt，確認是否有重複的檔案內容，以及內容是否隨磁碟變動而更新。
+- **性能驗證**：確認 100 個檔案的 `fs.stat` 巡檢不會造成顯著延遲。

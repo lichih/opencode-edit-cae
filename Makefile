@@ -2,7 +2,7 @@
 # Path to the Opencode source repository
 OPENCODE_REPO ?= $(CURDIR)/opencode
 # Tag to use as the base for building
-OPENCODE_TAG  ?= v1.2.27
+OPENCODE_TAG  ?= v1.3.0
 # Installation prefix (default: ~/.local)
 PREFIX        ?= $(HOME)/.local
 BIN_DIR       := $(PREFIX)/bin
@@ -23,34 +23,27 @@ else
     ARCH_BIN := dist/opencode-linux-arm64/bin/opencode
 endif
 
-.PHONY: all patch build install plugin-install clean help
+.PHONY: all patch build install clean help
 
 help:
-	@echo "Opencode CAE Maintenance System"
+	@echo "Opencode CAE Maintenance System (Redo)"
 	@echo "Usage: make [target] [OPENCODE_REPO=/path/to/repo] [PREFIX=/install/path]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  patch          - Reset Opencode to $(OPENCODE_TAG) and apply patches"
+	@echo "  patch          - Reset Opencode to $(OPENCODE_TAG) and apply new CAE patch"
 	@echo "  build          - Compile the patched Opencode core"
 	@echo "  install        - Install the architecture-specific binary to $(BIN_DIR)"
-	@echo "  plugin-install - Build and install the edit_cae plugin to user space"
-	@echo "  all            - Run all of the above"
+	@echo "  all            - Run patch, build, and install"
 	@echo "  clean          - Revert core patches and clean local build"
 
-all: patch build install plugin-install
+all: patch build install
 
 patch:
 	@echo ">>> Resetting $(OPENCODE_REPO) to $(OPENCODE_TAG)..."
 	cd $(OPENCODE_REPO) && git reset --hard $(OPENCODE_TAG) && git clean -fd
-	@echo ">>> Applying patches to $(OPENCODE_REPO)..."
-	# [PAUSED] 測試後對 opencode agent 行為有不良影響，暫不套用
-	# cd $(OPENCODE_REPO) && git apply $(CURDIR)/patches/remove_plan_mode_reminder.patch
-	# [ACTIVE] 恢復視覺對位：讓 edit_cae 能顯示紅綠 Diff 視窗
-	cd $(OPENCODE_REPO) && git apply $(CURDIR)/patches/tui_visual_parity.patch
-	# [ACTIVE] 修復 Registry：確保 Metadata 傳遞完整
-	cd $(OPENCODE_REPO) && git apply $(CURDIR)/patches/fix_registry_metadata.patch
-	# [ACTIVE] 實作 Pin-Reads：動態上下文調度系統
-	cd $(OPENCODE_REPO) && git apply $(CURDIR)/patches/pin_reads_scheduler.patch
+	@echo ">>> Applying new CAE patch to $(OPENCODE_REPO)..."
+	cd $(OPENCODE_REPO) && git apply $(CURDIR)/patches/edit_cae_v1.3.0.patch
+	@echo "✅ CAE logic successfully injected into core."
 
 build:
 	@echo ">>> Building Opencode..."
@@ -66,14 +59,6 @@ ifeq ($(UNAME_S),Darwin)
 endif
 	@echo "✅ Native core updated with architecture-specific binary."
 
-plugin-install:
-	@echo ">>> Building and installing edit_cae plugin..."
-	npm run build
-	mkdir -p $(HOME)/.opencode/plugins
-	cp -f plugin/index.js $(HOME)/.opencode/plugins/edit_cae.js
-	@echo "✅ Plugin installed to ~/.opencode/plugins/edit_cae.js"
-
 clean:
 	@echo ">>> Cleaning up..."
-	cd $(OPENCODE_REPO) && git checkout . && git checkout $(OPENCODE_TAG)
-	rm -rf plugin/
+	cd $(OPENCODE_REPO) && git reset --hard $(OPENCODE_TAG) && git clean -fd
