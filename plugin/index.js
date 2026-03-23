@@ -14425,9 +14425,10 @@ async function safeWrite(filePath, content, originalContent, matchIndex, matchLe
   }
 }
 function trimDiff(diff) {
-  if (typeof diff !== "string" || !diff)
+  const safeDiff = String(diff || "");
+  if (!safeDiff)
     return "";
-  const lines = diff.split(`
+  const lines = safeDiff.split(`
 `);
   const contentLines = lines.filter((line) => (line.startsWith("+") || line.startsWith("-") || line.startsWith(" ")) && !line.startsWith("---") && !line.startsWith("+++"));
   if (contentLines.length === 0)
@@ -14458,6 +14459,8 @@ var SimpleReplacer = function* (_content, find) {
   yield find;
 };
 var LineTrimmedReplacer = function* (content, find) {
+  if (typeof content !== "string" || typeof find !== "string")
+    return;
   const originalLines = content.split(`
 `);
   const searchLines = find.split(`
@@ -14486,6 +14489,8 @@ var LineTrimmedReplacer = function* (content, find) {
   }
 };
 var BlockAnchorReplacer = function* (content, find) {
+  if (typeof content !== "string" || typeof find !== "string")
+    return;
   const originalLines = content.split(`
 `);
   const searchLines = find.split(`

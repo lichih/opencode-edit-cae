@@ -10,8 +10,7 @@ BIN_NAME      := opencode
 
 # Patch Artifact Configuration
 PATCH_DIR         := patches
-CORE_TOOL_PATH    := packages/opencode/src/tool
-CORE_SESSION_PATH := packages/opencode/src/session
+CORE_SRC_PREFIX   := packages/opencode/src
 
 # Dynamic Patch Naming (Based on OPENCODE_TAG)
 CAE_PATCH := $(PATCH_DIR)/edit_cae_$(OPENCODE_TAG).patch
@@ -52,21 +51,24 @@ build-patches:
 	@mkdir -p $(PATCH_DIR)
 	@rm -f $(PATCH_DIR)/*.patch
 	@echo ">>> Generating patches for $(OPENCODE_TAG) from src/ to $(PATCH_DIR)..."
-	# 1. Edit CAE Patch (Semantic Anchoring)
-	@git diff --no-index --no-prefix src/1.3.0/edit.ts src/edit.ts \
-		| sed 's|src/1.3.0/edit.ts|$(CORE_TOOL_PATH)/edit.ts|g' \
-		| sed 's|src/edit.ts|$(CORE_TOOL_PATH)/edit.ts|g' \
+	
+	# 1. Edit CAE Patch
+	@git diff --no-index --no-prefix src/1.3.0/tool/edit.ts src/tool/edit.ts \
+		| sed 's|src/1.3.0/|$(CORE_SRC_PREFIX)/|g' \
+		| sed 's|src/|$(CORE_SRC_PREFIX)/|g' \
 		> $(CAE_PATCH) || true
-	# 2. Pin-Reads Patch (Dynamic Context Scheduler)
+		
+	# 2. Pin-Reads Patch
 	@echo "" > $(PIN_PATCH)
-	@git diff --no-index --no-prefix src/1.3.0/read.ts src/read.ts \
-		| sed 's|src/1.3.0/read.ts|$(CORE_TOOL_PATH)/read.ts|g' \
-		| sed 's|src/read.ts|$(CORE_TOOL_PATH)/read.ts|g' \
+	@git diff --no-index --no-prefix src/1.3.0/tool/read.ts src/tool/read.ts \
+		| sed 's|src/1.3.0/|$(CORE_SRC_PREFIX)/|g' \
+		| sed 's|src/|$(CORE_SRC_PREFIX)/|g' \
 		>> $(PIN_PATCH) || true
-	@git diff --no-index --no-prefix src/1.3.0/prompt.ts src/prompt.ts \
-		| sed 's|src/1.3.0/prompt.ts|$(CORE_SESSION_PATH)/prompt.ts|g' \
-		| sed 's|src/prompt.ts|$(CORE_SESSION_PATH)/prompt.ts|g' \
+	@git diff --no-index --no-prefix src/1.3.0/session/prompt.ts src/session/prompt.ts \
+		| sed 's|src/1.3.0/|$(CORE_SRC_PREFIX)/|g' \
+		| sed 's|src/|$(CORE_SRC_PREFIX)/|g' \
 		>> $(PIN_PATCH) || true
+		
 	@echo "✅ Patches generated successfully: $(CAE_PATCH), $(PIN_PATCH)"
 
 patch: build-patches

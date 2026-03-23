@@ -242,9 +242,14 @@ export const ReadTool = Tool.define("read", {
           if (oldestKey) PinnedRegistry.delete(oldestKey)
         }
 
+        let finalOutput = `[File pinned: ${filepath}]`
+        if (instructions.length > 0) {
+          finalOutput += `\n\n<system-reminder>\n${instructions.map((i) => i.content).join("\n\n")}\n</system-reminder>`
+        }
+
         return {
           title,
-          output: `[File pinned: ${filepath}]`,
+          output: finalOutput,
           metadata: {
             pinned: true,
             mtime: stat.mtimeMs,
