@@ -19,9 +19,19 @@ const MAX_BYTES = 50 * 1024
 const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`
 
 /**
+ * Pinned File State structure
+ */
+export interface PinnedFileState {
+  mtime: number
+  lastAccess: number
+  score: number // HP
+  lastAction: string // 操作類型：read, edit, sync
+}
+
+/**
  * Global registry for pinned files (LRU 100)
  */
-export const PinnedRegistry = new Map<string, { mtime: number; lastAccess: number }>()
+export const PinnedRegistry = new Map<string, PinnedFileState>()
 
 export const ReadTool = Tool.define("read", {
   description: DESCRIPTION,
@@ -211,10 +221,12 @@ export const ReadTool = Tool.define("read", {
       if (truncated) {
         // Hard Fail for large files
         const sizeKB = Math.round(Number(stat.size) / 1024)
+        const failMsg = `[Error: File too large for direct read: ${filepath}]\nSize: ${sizeKB} KB. Total lines: ${totalLines}. Please use 'offset' and 'limit' for partial read.`
         return {
           title,
-          output: `[Error: File too large for direct read: ${filepath}]\nSize: ${sizeKB} KB. Total lines: ${totalLines}. Please use 'offset' and 'limit' for partial read.`,
+          output: failMsg,
           metadata: {
+            preview: failMsg.substring(0, 100),
             size: Number(stat.size),
             totalLines,
             truncated: true,
@@ -225,8 +237,10 @@ export const ReadTool = Tool.define("read", {
         // Successful Pin
         const now = Date.now()
         PinnedRegistry.set(filepath, {
-          mtime: stat.mtimeMs,
+          mtime: Number(stat.mtimeMs),
           lastAccess: now,
+          score: 100, // Initial HP
+          lastAction: "read",
         })
 
         // LRU 100 management
@@ -251,17 +265,20 @@ export const ReadTool = Tool.define("read", {
           title,
           output: finalOutput,
           metadata: {
+            preview: `[Pinned: ${filepath}]`,
             pinned: true,
-            mtime: stat.mtimeMs,
+            mtime: Number(stat.mtimeMs),
             loaded: instructions.map((i) => i.filepath),
+            truncated: false,
           },
         }
       }
     }
 
     // Update lastAccess if already pinned
-    if (PinnedRegistry.has(filepath)) {
-      PinnedRegistry.get(filepath)!.lastAccess = Date.now()
+    const existing = PinnedRegistry.get(filepath)
+    if (existing) {
+      existing.lastAccess = Date.now()
     }
     // --- End of CAE Logic ---
 

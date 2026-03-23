@@ -14,6 +14,7 @@ PATCH_DIR         := patches
 # Dynamic Patch Naming (Based on OPENCODE_TAG)
 CAE_PATCH := $(PATCH_DIR)/edit_cae_$(OPENCODE_TAG).patch
 PIN_PATCH := $(PATCH_DIR)/pin_reads_$(OPENCODE_TAG).patch
+UI_PATCH  := $(PATCH_DIR)/ui_v12_$(OPENCODE_TAG).patch
 
 # Platform detection
 UNAME_S := $(shell uname -s)
@@ -67,8 +68,15 @@ build-patches:
 		| sed 's|^--- src/1.3.0/|--- packages/opencode/src/|' \
 		| sed 's|^+++ src/|+++ packages/opencode/src/|' \
 		>> $(PIN_PATCH) || [ $$? -eq 1 ]
+
+	# 3. UI Sync Patch (Standard diff -u)
+	@echo ">>> Generating UI patches for $(OPENCODE_TAG)..."
+	@diff -u src/1.3.0/cli/cmd/tui/routes/session/sidebar.tsx src/cli/cmd/tui/routes/session/sidebar.tsx \
+		| sed 's|^--- src/1.3.0/|--- packages/opencode/src/|' \
+		| sed 's|^+++ src/|+++ packages/opencode/src/|' \
+		> $(UI_PATCH) || [ $$? -eq 1 ]
 		
-	@echo "✅ Patches generated successfully: $(CAE_PATCH), $(PIN_PATCH)"
+	@echo "✅ Patches generated successfully: $(CAE_PATCH), $(PIN_PATCH), $(UI_PATCH)"
 
 patch: build-patches
 	@echo ">>> Resetting $(OPENCODE_REPO) to $(OPENCODE_TAG)..."
@@ -76,7 +84,11 @@ patch: build-patches
 	@echo ">>> Applying new CAE patches using standard patch tool..."
 	cd $(OPENCODE_REPO) && patch -p0 < $(CURDIR)/$(CAE_PATCH)
 	cd $(OPENCODE_REPO) && patch -p0 < $(CURDIR)/$(PIN_PATCH)
-	@echo "✅ CAE logic successfully injected into core."
+	cd $(OPENCODE_REPO) && patch -p0 < $(CURDIR)/$(UI_PATCH)
+	@echo ">>> Syncing prompt templates..."
+	cp $(OPENCODE_REPO)/packages/opencode/src/session/prompt/anthropic.txt \
+	   $(OPENCODE_REPO)/packages/opencode/src/session/prompt/gemini.txt
+	@echo "✅ CAE logic, UI, and prompt templates successfully updated."
 
 build:
 	@echo ">>> Building Opencode..."

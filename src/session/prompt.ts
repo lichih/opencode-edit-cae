@@ -1355,12 +1355,12 @@ export namespace SessionPrompt {
     }
   }
 
-  async function insertReminders(input: { messages: MessageV2.WithParts[]; agent: Agent.Info; session: Session.Info }) {
+  export async function insertReminders(input: { messages: MessageV2.WithParts[]; agent: Agent.Info; session: Session.Info }) {
     // 1. Suppression: Remove old pinned-file tags or read output markers from history
     for (const msg of input.messages) {
       msg.parts = msg.parts.filter((p) => {
         if (p.type === "text" && p.synthetic) {
-          if (p.text.includes("<pinned-file") || p.text.includes("[File pinned:")) {
+          if (p.text.includes("<pinned-file") || p.text.includes("[File pinned:") || p.metadata?.["pinnedFiles"]) {
             return false
           }
         }
@@ -1371,8 +1371,16 @@ export namespace SessionPrompt {
     const userMessage = input.messages.findLast((msg) => msg.info.role === "user")
     if (!userMessage) return input.messages
 
-    // 2. JIT Injection: Inject latest content of all pinned files
-    const activePins = Array.from(PinnedRegistry.entries()).sort((a, b) => b[1].lastAccess - a[1].lastAccess)
+    // 2. HP Decay & JIT Injection
+    // Decay scores by 20 every turn. Score > 0 files get active JIT injection.
+    // Score <= 0 files remain in Registry (until LRU kicked) but stay in history only.
+    for (const [filepath, meta] of PinnedRegistry.entries()) {
+      meta.score = Math.max(0, meta.score - 20)
+    }
+
+    const activePins = Array.from(PinnedRegistry.entries())
+      .filter(([_, meta]) => meta.score > 0)
+      .sort((a, b) => b[1].lastAccess - a[1].lastAccess)
 
     let totalChars = 0
     const QUOTA = 50000
@@ -1398,8 +1406,22 @@ export namespace SessionPrompt {
 
       // Update registry mtime to current state on disk
       const stats = await fs.stat(filepath).catch(() => undefined)
-      if (stats) meta.mtime = stats.mtimeMs
+      if (stats) meta.mtime = Number(stats.mtimeMs)
     }
+
+    // 3. Invisible TUI Sync: Inject memory snapshot into a synthetic part metadata
+    // This allows TUI to visualize the current Pinned Files state without patching Session model.
+    userMessage.parts.push({
+      id: PartID.ascending(),
+      messageID: userMessage.info.id,
+      sessionID: userMessage.info.sessionID,
+      type: "text",
+      text: "", // Invisible to user/model
+      synthetic: true,
+      metadata: {
+        pinnedFiles: Object.fromEntries(PinnedRegistry),
+      },
+    })
 
     // Original logic when experimental plan mode is disabled
     if (!Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE) {
@@ -1534,6 +1556,29 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       userMessage.parts.push(part)
       return input.messages
     }
+    // CAE V12: Invisible Data Bridge Sync
+    // 1. HP Decay
+    for (const [filepath, meta] of PinnedRegistry.entries()) {
+      meta.score -= 20
+      if (meta.score <= 0) {
+        PinnedRegistry.delete(filepath)
+      }
+    }
+
+    // 2. Inject Metadata Bridge Part
+    const bridgePart = await Session.updatePart({
+      id: PartID.ascending(),
+      messageID: userMessage.info.id,
+      sessionID: userMessage.info.sessionID,
+      type: "text",
+      text: "", // Empty for model, invisible in UI (synthetic)
+      synthetic: true,
+      metadata: {
+        pinnedFiles: Object.fromEntries(PinnedRegistry),
+      },
+    })
+    userMessage.parts.push(bridgePart)
+
     return input.messages
   }
 
