@@ -8,6 +8,11 @@ PREFIX        ?= $(HOME)/.local
 BIN_DIR       := $(PREFIX)/bin
 BIN_NAME      := opencode
 
+# Patch Artifact Configuration
+PATCH_DIR := patches
+CORE_TOOL_PATH := packages/opencode/src/tool
+CORE_SESSION_PATH := packages/opencode/src/session
+
 # Platform detection
 UNAME_S := $(shell uname -s)
 UNAME_M := $(shell uname -m)
@@ -23,26 +28,48 @@ else
     ARCH_BIN := dist/opencode-linux-arm64/bin/opencode
 endif
 
-.PHONY: all patch build install clean help
+.PHONY: all patch build install clean build-patches help
 
 help:
 	@echo "Opencode CAE Maintenance System (Redo)"
 	@echo "Usage: make [target] [OPENCODE_REPO=/path/to/repo] [PREFIX=/install/path]"
 	@echo ""
 	@echo "Targets:"
-	@echo "  patch          - Reset Opencode to $(OPENCODE_TAG) and apply new CAE patch"
+	@echo "  build-patches  - Generate patches from src/ to $(PATCH_DIR)"
+	@echo "  patch          - Reset Opencode and apply new CAE patches"
 	@echo "  build          - Compile the patched Opencode core"
 	@echo "  install        - Install the architecture-specific binary to $(BIN_DIR)"
-	@echo "  all            - Run patch, build, and install"
+	@echo "  all            - Run build-patches, patch, build, and install"
 	@echo "  clean          - Revert core patches and clean local build"
 
-all: patch build install
+all: build-patches patch build install
 
-patch:
+build-patches:
+	@mkdir -p $(PATCH_DIR)
+	@echo ">>> Generating patches from src/ to $(PATCH_DIR)..."
+	# 1. Edit CAE Patch (Semantic Anchoring)
+	@git diff --no-index --no-prefix src/1.3.0/edit.ts src/edit.ts \
+		| sed 's|src/1.3.0/edit.ts|$(CORE_TOOL_PATH)/edit.ts|g' \
+		| sed 's|src/edit.ts|$(CORE_TOOL_PATH)/edit.ts|g' \
+		> $(PATCH_DIR)/edit_cae_v1.3.0.patch || true
+	# 2. Pin-Reads Patch (Dynamic Context Scheduler)
+	@echo "" > $(PATCH_DIR)/pin_reads_v1.1.patch
+	@git diff --no-index --no-prefix src/1.3.0/read.ts src/read.ts \
+		| sed 's|src/1.3.0/read.ts|$(CORE_TOOL_PATH)/read.ts|g' \
+		| sed 's|src/read.ts|$(CORE_TOOL_PATH)/read.ts|g' \
+		>> $(PATCH_DIR)/pin_reads_v1.1.patch || true
+	@git diff --no-index --no-prefix src/1.3.0/prompt.ts src/prompt.ts \
+		| sed 's|src/1.3.0/prompt.ts|$(CORE_SESSION_PATH)/prompt.ts|g' \
+		| sed 's|src/prompt.ts|$(CORE_SESSION_PATH)/prompt.ts|g' \
+		>> $(PATCH_DIR)/pin_reads_v1.1.patch || true
+	@echo "✅ Patches generated successfully."
+
+patch: build-patches
 	@echo ">>> Resetting $(OPENCODE_REPO) to $(OPENCODE_TAG)..."
 	cd $(OPENCODE_REPO) && git reset --hard $(OPENCODE_TAG) && git clean -fd
-	@echo ">>> Applying new CAE patch to $(OPENCODE_REPO)..."
-	cd $(OPENCODE_REPO) && git apply $(CURDIR)/patches/edit_cae_v1.3.0.patch
+	@echo ">>> Applying new CAE patches to $(OPENCODE_REPO)..."
+	cd $(OPENCODE_REPO) && git apply $(CURDIR)/$(PATCH_DIR)/edit_cae_v1.3.0.patch
+	cd $(OPENCODE_REPO) && git apply $(CURDIR)/$(PATCH_DIR)/pin_reads_v1.1.patch
 	@echo "✅ CAE logic successfully injected into core."
 
 build:
