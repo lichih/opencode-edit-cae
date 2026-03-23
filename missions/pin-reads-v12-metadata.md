@@ -1,29 +1,30 @@
-# Mission: Pin-Reads V12 - TUI Data Bridge (Minimalist)
+# Mission: Pin-Reads V12 - Priority Visibility & TUI Bridge
 
-## 1. 核心願景 (Core Vision)
-透過最精簡的代碼變動，將 Pinned Files 狀態同步至 Session Metadata。此舉是為了讓 TUI 面板能感知後端狀態，同時引入評分機制以自動優化 Context，但不改變 `read.ts` 以內存全域變數為核心的架構。
+## 1. 核心任務 (The Delta)
+本任務專注於「評分機制」的引入與「Session 資料橋接」，不涉及基礎 LRU 100 或 Registry 的重構。
 
-## 2. 實作架構 (Minimalist Architecture)
+## 2. 評分與可見度 (Priority & Visibility Logic)
+透過「分數 (HP)」來精確控制檔案在 Reminders 中的曝光權。
 
-### A. 維持內存為唯一真相 (In-Memory Source of Truth)
-- **`src/tool/read.ts`**: 繼續維護 `export const PinnedRegistry` (Map)。
-- **變動**：在 Registry 的 Value 中追加 `score` (HP) 與 `lastAction` 欄位。
-- **禁令**：**嚴禁**在 `read.ts` 中呼叫 `Session.updateMetadata`。
+-   **HP 賦予**：
+    -   `read` (全量): 40 HP
+    -   `edit` (修改): 100 HP
+-   **HP 衰減**：
+    -   在 `prompt.ts` 的 `insertReminders` 執行時，全體 Pinned 檔案 **-20 HP**。
+-   **可見度判定**：
+    -   **Score > 0**: 執行 JIT 注入，檔案內容出現在最新的 Reminders 中。
+    -   **Score <= 0**: **停止主動注入**。檔案依然保留在 PinnedRegistry 中（直到被 LRU 踢出），但僅存在於對話歷史。
 
-### B. 單點狀態同步 (Single-Point State Sync)
-- **實作點**：`src/session/prompt.ts` 的 `insertReminders`。
-- **邏輯步驟**：
-    1.  **HP 衰減**：遍歷 `PinnedRegistry` 執行 `score -= 20` 並刪除歸零檔案。
-    2.  **JIT 注入**：按 `score` 排序執行 Context 注入。
-    3.  **鏡像更新 (The Bridge)**：僅在此處執行 **一次性** 的 `Session.updateMetadata`。
-    4.  **內容**：將 `PinnedRegistry` 的內容轉為 JSON 並存入 `metadata.pinnedFiles`。
+## 3. 單點同步協議 (The Sync Protocol)
+為極小化 IPC 成本並確保 TUI (右側面板) 感知狀態：
 
-## 3. 重要性評分規則 (Scoring Rules)
--   **賦分**: `read` = 40 HP, `edit` = 100 HP.
--   **衰減**: 每輪對話開始前 **-20 HP**。
--   **清理**: 分數歸零則從 Registry 移除，同步也會從 Session 消失。
+-   **Read/Edit 工具端**：僅更新 `PinnedRegistry` 內存變數（包含 `score` 與 `lastAction`），**嚴禁**呼叫 `Session.updateMetadata`。
+-   **Prompt 調度端**：
+    -   在 `insertReminders` 執行衰減後，獲取 `PinnedRegistry` 快照。
+    -   執行 **唯一一次** 的 `Session.updateMetadata`，將狀態同步至資料庫。
 
-## 4. 實作路徑 (Roadmap)
-1.  **`read.ts`**: 確保 `PinnedRegistry` 在更新時正確賦予 `score`。
-2.  **`prompt.ts`**: 在 `insertReminders` 中實作 HP 遞減與 `Session.updateMetadata` 調用。
-3.  **驗證**: 觀察 `make build-patches` 產出的補丁，確保 `read.ts` 的變動極小。
+## 4. 實作檢查表
+- [ ] 擴充 `PinnedRegistry` 的 Value 結構，納入 `score` 與 `lastAction`。
+- [ ] 修改 `prompt.ts`：實作分數衰減邏輯。
+- [ ] 修改 `prompt.ts`：將 JIT 注入的門檻改為 `score > 0`。
+- [ ] 修改 `prompt.ts`：加入單點 Metadata 同步呼叫。
