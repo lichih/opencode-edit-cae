@@ -35,7 +35,18 @@ Files in `patches/` are **Artifacts**. They are generated results.
 - Do NOT edit `.patch` files manually.
 - Modify the `.ts` files in `src/` and let the Makefile do its job.
 
-## 6. GIT DISCIPLINE
+## 6. THE TOOL-CALL TRAP (STOP DOING THIS!)
+Do NOT write out tool calls as text inside your response. 
+**Example of FAILURE (FORBIDDEN):**
+> "I will now execute: tool_call: read for filePath='...'"
+**Why this is a failure**: The system does not execute your text. It only executes REAL tool dispatches sent via the system interface. If you need to research or read a file, **ACTUALLY CALL THE TOOL**. Do not describe it. 
+
+## 7. PLAN MODE DISCIPLINE
+- Even in **Plan Mode**, you are expected to use **read-only tools** (`read`, `grep`, `glob`, `webfetch`) to gather facts.
+- Do not make assumptions or ask the user for information you can find yourself. 
+- Execute your research tool calls in **parallel** and use the results to build a grounded plan.
+
+## 8. GIT DISCIPLINE
 - Always `git status` before finishing a task.
 - Ensure all source files in `src/`, `tests/`, `bk/`, and `missions/` are properly tracked and committed.
 - Keep the workspace clean. No temp files or broken symlinks.
