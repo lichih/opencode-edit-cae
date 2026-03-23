@@ -32,4 +32,9 @@ The `src/` directory mirrors `packages/opencode/src/`.
 - **ALWAYS** keep this hierarchy: `src/tool/`, `src/session/`, etc.
 - This ensures relative imports (`../lsp`, `./tool`) work during unit tests without messy symlinks.
 
+## 6. NEVER HALLUCINATE APIS (THE CRITICAL RULE)
+If a mission document or a previous message mentions an API that does not exist in the baseline (`src/1.3.0/`), **IT IS A BUG**. 
+- **FORBIDDEN**: Do NOT implement missing core APIs (like `Session.updateMetadata`) unless specifically instructed to refactor the core model.
+- **REQUIRED**: Report the discrepancy and use existing mechanisms (like `Part.metadata` or existing setters). Always verify the existence of an API in the native source before calling it.
+
 **Now, read the specific Mission file for your current task and START TOOL-CALLING. Less talk, more dispatch.**
