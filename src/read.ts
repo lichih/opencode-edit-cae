@@ -200,8 +200,13 @@ export const ReadTool = Tool.define("read", {
     const nextOffset = lastReadLine + 1
     const truncated = hasMoreLines || truncatedByBytes
 
-    // --- CAE Pin-Reads Enhancement ---
+    // --- Side Effects (1:1 Original Mechanics) ---
+    LSP.touchFile(filepath, false)
+    await FileTime.read(ctx.sessionID, filepath)
+
+    // --- CAE Pin-Reads Logic ---
     const isFullReadRequest = (params.offset === undefined || params.offset === 1) && params.limit === undefined
+
     if (isFullReadRequest) {
       if (truncated) {
         // Hard Fail for large files
@@ -213,6 +218,7 @@ export const ReadTool = Tool.define("read", {
             size: Number(stat.size),
             totalLines,
             truncated: true,
+            loaded: instructions.map((i) => i.filepath),
           },
         }
       } else {
@@ -242,6 +248,7 @@ export const ReadTool = Tool.define("read", {
           metadata: {
             pinned: true,
             mtime: stat.mtimeMs,
+            loaded: instructions.map((i) => i.filepath),
           },
         }
       }
@@ -251,15 +258,15 @@ export const ReadTool = Tool.define("read", {
     if (PinnedRegistry.has(filepath)) {
       PinnedRegistry.get(filepath)!.lastAccess = Date.now()
     }
-    // --- End of Enhancement ---
+    // --- End of CAE Logic ---
 
-    const content = raw.map((line, index) => {
+    const contentLines = raw.map((line, index) => {
       return `${index + offset}: ${line}`
     })
     const preview = raw.slice(0, 20).join("\n")
 
     let output = [`<path>${filepath}</path>`, `<type>file</type>`, "<content>"].join("\n")
-    output += content.join("\n")
+    output += contentLines.join("\n")
 
     if (truncatedByBytes) {
       output += `\n\n(Output capped at ${MAX_BYTES_LABEL}. Showing lines ${offset}-${lastReadLine}. Use offset=${nextOffset} to continue.)`
@@ -269,10 +276,6 @@ export const ReadTool = Tool.define("read", {
       output += `\n\n(End of file - total ${totalLines} lines)`
     }
     output += "\n</content>"
-
-    // just warms the lsp client
-    LSP.touchFile(filepath, false)
-    await FileTime.read(ctx.sessionID, filepath)
 
     if (instructions.length > 0) {
       output += `\n\n<system-reminder>\n${instructions.map((i) => i.content).join("\n\n")}\n</system-reminder>`
