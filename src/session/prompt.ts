@@ -26,7 +26,7 @@ import { defer } from "../util/defer"
 import { ToolRegistry } from "../tool/registry"
 import { MCP } from "../mcp"
 import { LSP } from "../lsp"
-import { ReadTool, PinnedRegistry } from "../tool/read"
+import { ReadTool, PinnedRegistry, syncPinnedFiles } from "../tool/read"
 import { FileTime } from "../file/time"
 import { NotFoundError } from "@/storage/db"
 import { Flag } from "../flag/flag"
@@ -1371,12 +1371,9 @@ export namespace SessionPrompt {
     const userMessage = input.messages.findLast((msg) => msg.info.role === "user")
     if (!userMessage) return input.messages
 
-    // 2. HP Decay & JIT Injection
-    // Decay scores by 20 every turn. Score > 0 files get active JIT injection.
-    // Score <= 0 files remain in Registry (until LRU kicked) but stay in history only.
-    for (const [filepath, meta] of PinnedRegistry.entries()) {
-      meta.score = Math.max(0, meta.score - 20)
-    }
+    // 2. Physical Facts Sync & HP Decay (Delegated to ReadTool)
+    // This handles mtime comparison for elevation and turn-based decay
+    await syncPinnedFiles("prompt")
 
     const activePins = Array.from(PinnedRegistry.entries())
       .filter(([_, meta]) => meta.score > 0)
@@ -1394,24 +1391,21 @@ export namespace SessionPrompt {
       const tag = `<pinned-file path="${filepath}">\n${content}\n</pinned-file>`
       if (totalChars + tag.length > QUOTA) continue
 
-      userMessage.parts.push({
+      const part = await Session.updatePart({
         id: PartID.ascending(),
         messageID: userMessage.info.id,
         sessionID: userMessage.info.sessionID,
         type: "text",
         text: tag,
         synthetic: true,
-      })
+      } satisfies MessageV2.TextPart)
+      userMessage.parts.push(part)
       totalChars += tag.length
-
-      // Update registry mtime to current state on disk
-      const stats = await fs.stat(filepath).catch(() => undefined)
-      if (stats) meta.mtime = Number(stats.mtimeMs)
     }
 
     // 3. Invisible TUI Sync: Inject memory snapshot into a synthetic part metadata
     // This allows TUI to visualize the current Pinned Files state without patching Session model.
-    userMessage.parts.push({
+    const syncPart = await Session.updatePart({
       id: PartID.ascending(),
       messageID: userMessage.info.id,
       sessionID: userMessage.info.sessionID,
@@ -1421,7 +1415,8 @@ export namespace SessionPrompt {
       metadata: {
         pinnedFiles: Object.fromEntries(PinnedRegistry),
       },
-    })
+    } satisfies MessageV2.TextPart)
+    userMessage.parts.push(syncPart)
 
     // Original logic when experimental plan mode is disabled
     if (!Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE) {

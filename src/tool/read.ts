@@ -11,6 +11,7 @@ import { Instance } from "../project/instance"
 import { assertExternalDirectory } from "./external-directory"
 import { InstructionPrompt } from "../session/instruction"
 import { Filesystem } from "../util/filesystem"
+import { Global } from "../global"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -32,6 +33,72 @@ export interface PinnedFileState {
  * Global registry for pinned files (LRU 100)
  */
 export const PinnedRegistry = new Map<string, PinnedFileState>()
+
+/**
+ * Persistence path
+ */
+const PINNED_FILES_CACHE = path.join(Global.Path.data, "pinned-files.json")
+
+let loadedPromise: Promise<void> | undefined
+
+async function savePinnedRegistry() {
+  try {
+    const data = Object.fromEntries(PinnedRegistry)
+    await fs.writeFile(PINNED_FILES_CACHE, JSON.stringify(data, null, 2))
+  } catch (e) {
+    // Silent fail for persistence
+  }
+}
+
+async function loadPinnedRegistry() {
+  if (loadedPromise) return loadedPromise
+  loadedPromise = (async () => {
+    try {
+      const content = await fs.readFile(PINNED_FILES_CACHE, "utf8")
+      const data = JSON.parse(content)
+      for (const [key, value] of Object.entries(data)) {
+        PinnedRegistry.set(key, value as PinnedFileState)
+      }
+    } catch (e) {
+      // Silent fail if file doesn't exist
+    }
+  })()
+  return loadedPromise
+}
+
+// Initial load
+loadPinnedRegistry()
+
+/**
+ * Sync pinned files with physical facts (mtime) and apply evolution (decay)
+ */
+export async function syncPinnedFiles(reason: "prompt" | "read" | "init") {
+  await loadPinnedRegistry()
+  const items = Array.from(PinnedRegistry.entries())
+  for (const [filepath, meta] of items) {
+    const stats = await fs.stat(filepath).catch(() => undefined)
+    if (!stats) {
+      // File gone, remove from pin
+      PinnedRegistry.delete(filepath)
+      continue
+    }
+
+    const mtime = Number(stats.mtimeMs)
+    if (mtime > meta.mtime) {
+      // Physical change detected -> Reset HP to 100 (Elevation)
+      meta.score = 100
+      meta.mtime = mtime
+      meta.lastAction = "sync"
+    } else if (reason === "prompt") {
+      // No physical change, apply turn-based decay
+      meta.score = Math.max(0, meta.score - 20)
+    }
+  }
+
+  if (reason !== "init") {
+    await savePinnedRegistry()
+  }
+}
 
 export const ReadTool = Tool.define("read", {
   description: DESCRIPTION,
@@ -256,6 +323,8 @@ export const ReadTool = Tool.define("read", {
           if (oldestKey) PinnedRegistry.delete(oldestKey)
         }
 
+        await savePinnedRegistry()
+
         let finalOutput = `[File pinned: ${filepath}]`
         if (instructions.length > 0) {
           finalOutput += `\n\n<system-reminder>\n${instructions.map((i) => i.content).join("\n\n")}\n</system-reminder>`
@@ -279,6 +348,7 @@ export const ReadTool = Tool.define("read", {
     const existing = PinnedRegistry.get(filepath)
     if (existing) {
       existing.lastAccess = Date.now()
+      await savePinnedRegistry()
     }
     // --- End of CAE Logic ---
 
