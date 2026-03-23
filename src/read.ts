@@ -21,7 +21,7 @@ const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`
 /**
  * Global registry for pinned files (LRU 100)
  */
-const PinnedRegistry = new Map<string, { mtime: number; lastAccess: number }>()
+export const PinnedRegistry = new Map<string, { mtime: number; lastAccess: number }>()
 
 export const ReadTool = Tool.define("read", {
   description: DESCRIPTION,
