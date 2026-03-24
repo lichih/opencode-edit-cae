@@ -33,6 +33,21 @@ function convertToLineEnding(text: string, ending: "\n" | "\r\n"): string {
   return text.replaceAll("\n", "\r\n")
 }
 
+/**
+ * CAE Debug Stats (Turn/Lifetime)
+ */
+export const EditStats = {
+  turn: { done: 0, fail: 0 },
+  life: { done: 0, fail: 0 },
+}
+
+/**
+ * Reset turn stats for a new turn
+ */
+export function resetEditTurnStats() {
+  EditStats.turn = { done: 0, fail: 0 }
+}
+
 export const EditTool = Tool.define("edit", {
   description: DESCRIPTION,
   parameters: z.object({
@@ -92,7 +107,15 @@ export const EditTool = Tool.define("edit", {
       const old = convertToLineEnding(normalizeLineEndings(params.oldString), ending)
       const next = convertToLineEnding(normalizeLineEndings(params.newString), ending)
 
-      contentNew = replace(contentOld, old, next, params.replaceAll)
+      try {
+        contentNew = replace(contentOld, old, next, params.replaceAll)
+        EditStats.turn.done++
+        EditStats.life.done++
+      } catch (e) {
+        EditStats.turn.fail++
+        EditStats.life.fail++
+        throw e
+      }
 
       diff = trimDiff(
         createTwoFilesPatch(filePath, filePath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew)),

@@ -56,6 +56,24 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
     return `Msg:${msgs.length} P:${parts.length} ID:${pId.slice(-4)}`
   })
 
+  // Extract debug stats from the latest message metadata
+  const debugV12 = createMemo(() => {
+    const msgs = messages()
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i] as any
+      const pId = m.info?.id || m.id
+      const parts = sync.data.part[pId] || []
+      const part = parts.findLast((p: any) => p.metadata?.debugV12)
+      if (part) {
+        return part.metadata!.debugV12
+      }
+    }
+    return {
+      pin: { turn: { fresh: 0, stale: 0, removed: 0 }, life: { fresh: 0, stale: 0, removed: 0 } },
+      cae: { turn: { done: 0, fail: 0 }, life: { done: 0, fail: 0 } },
+    }
+  })
+
   // Sort MCP servers alphabetically for consistent display order
   const mcpEntries = createMemo(() => Object.entries(sync.data.mcp).sort(([a], [b]) => a.localeCompare(b)))
 
@@ -241,11 +259,32 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
             </box>
             <box>
               <text fg={theme.text}>
-                <b>[DEBUG] Pin-Reads V12</b>
+                <b>[DEBUG] Pin-Reads & CAE</b>
               </text>
-              <text fg={theme.success}>Patch Active</text>
+              <box paddingLeft={1} gap={0}>
+                <text fg={theme.textMuted}>
+                  (Turn / Lifetime)
+                </text>
+                <text fg={theme.text}>
+                  <span style={{ fg: theme.success }}>[+]</span> Pin Fresh:   {debugV12().pin.turn.fresh} / {debugV12().pin.life.fresh}
+                </text>
+                <text fg={theme.text}>
+                  <span style={{ fg: theme.text }}>[*]</span> Pin Stale:   {debugV12().pin.turn.stale} / {debugV12().pin.life.stale}
+                </text>
+                <text fg={theme.text}>
+                  <span style={{ fg: theme.textMuted }}>[-]</span> Pin Removed: {debugV12().pin.turn.removed} / {debugV12().pin.life.removed}
+                </text>
+                <box height={1} />
+                <text fg={theme.text}>
+                  <span style={{ fg: theme.success }}>[✓]</span> CAE Done:    {debugV12().cae.turn.done} / {debugV12().cae.life.done}
+                </text>
+                <text fg={theme.text}>
+                  <span style={{ fg: debugV12().cae.turn.fail > 0 ? theme.error : theme.textMuted }}>[✗]</span> CAE Fail:    {debugV12().cae.turn.fail} / {debugV12().cae.life.fail}
+                </text>
+              </box>
+              <box height={1} />
+              <text fg={theme.success}>Patch Active (V12)</text>
               <text fg={theme.textMuted}>{debugInfo()}</text>
-              <text fg={theme.textMuted}>Count: {pinnedFiles().length}</text>
             </box>
             <Show when={pinnedFiles().length > 0}>
               <box>

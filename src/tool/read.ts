@@ -30,9 +30,40 @@ export interface PinnedFileState {
 }
 
 /**
+ * Debug Stats (Turn/Lifetime)
+ */
+export interface PinDebugStats {
+  turn: {
+    fresh: number
+    stale: number
+    removed: number
+  }
+  life: {
+    fresh: number
+    stale: number
+    removed: number
+  }
+}
+
+/**
  * Global registry for pinned files (LRU 100)
  */
 export const PinnedRegistry = new Map<string, PinnedFileState>()
+
+/**
+ * Global stats for debugging (Session-level)
+ */
+export const PinnedStats: PinDebugStats = {
+  turn: { fresh: 0, stale: 0, removed: 0 },
+  life: { fresh: 0, stale: 0, removed: 0 },
+}
+
+/**
+ * Reset turn stats for a new turn
+ */
+export function resetPinnedTurnStats() {
+  PinnedStats.turn = { fresh: 0, stale: 0, removed: 0 }
+}
 
 /**
  * Persistence path
@@ -80,6 +111,10 @@ export async function syncPinnedFiles(reason: "prompt" | "read" | "init") {
     if (!stats) {
       // File gone, remove from pin
       PinnedRegistry.delete(filepath)
+      if (reason === "prompt") {
+        PinnedStats.turn.removed++
+        PinnedStats.life.removed++
+      }
       continue
     }
 
@@ -89,9 +124,21 @@ export async function syncPinnedFiles(reason: "prompt" | "read" | "init") {
       meta.score = 100
       meta.mtime = mtime
       meta.lastAction = "sync"
+      if (reason === "prompt") {
+        PinnedStats.turn.fresh++
+        PinnedStats.life.fresh++
+      }
     } else if (reason === "prompt") {
       // No physical change, apply turn-based decay
       meta.score = Math.max(0, meta.score - 20)
+      if (meta.score <= 0) {
+        PinnedRegistry.delete(filepath)
+        PinnedStats.turn.removed++
+        PinnedStats.life.removed++
+      } else {
+        PinnedStats.turn.stale++
+        PinnedStats.life.stale++
+      }
     }
   }
 
@@ -309,6 +356,8 @@ export const ReadTool = Tool.define("read", {
           score: 100, // Initial HP
           lastAction: "read",
         })
+        PinnedStats.turn.fresh++
+        PinnedStats.life.fresh++
 
         // LRU 100 management
         if (PinnedRegistry.size > 100) {

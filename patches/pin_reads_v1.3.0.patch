@@ -1,7 +1,7 @@
 
 --- packages/opencode/src/tool/read.ts	2026-03-23 20:30:03
-+++ packages/opencode/src/tool/read.ts	2026-03-23 23:04:52
-@@ -11,6 +11,7 @@
++++ packages/opencode/src/tool/read.ts	2026-03-24 09:36:34
+@@ -11,13 +11,142 @@
  import { assertExternalDirectory } from "./external-directory"
  import { InstructionPrompt } from "../session/instruction"
  import { Filesystem } from "../util/filesystem"
@@ -9,10 +9,10 @@
  
  const DEFAULT_READ_LIMIT = 2000
  const MAX_LINE_LENGTH = 2000
-@@ -18,6 +19,87 @@
+ const MAX_LINE_SUFFIX = `... (line truncated to ${MAX_LINE_LENGTH} chars)`
  const MAX_BYTES = 50 * 1024
  const MAX_BYTES_LABEL = `${MAX_BYTES / 1024} KB`
- 
++
 +/**
 + * Pinned File State structure
 + */
@@ -24,9 +24,40 @@
 +}
 +
 +/**
++ * Debug Stats (Turn/Lifetime)
++ */
++export interface PinDebugStats {
++  turn: {
++    fresh: number
++    stale: number
++    removed: number
++  }
++  life: {
++    fresh: number
++    stale: number
++    removed: number
++  }
++}
++
++/**
 + * Global registry for pinned files (LRU 100)
 + */
 +export const PinnedRegistry = new Map<string, PinnedFileState>()
++
++/**
++ * Global stats for debugging (Session-level)
++ */
++export const PinnedStats: PinDebugStats = {
++  turn: { fresh: 0, stale: 0, removed: 0 },
++  life: { fresh: 0, stale: 0, removed: 0 },
++}
++
++/**
++ * Reset turn stats for a new turn
++ */
++export function resetPinnedTurnStats() {
++  PinnedStats.turn = { fresh: 0, stale: 0, removed: 0 }
++}
 +
 +/**
 + * Persistence path
@@ -74,6 +105,10 @@
 +    if (!stats) {
 +      // File gone, remove from pin
 +      PinnedRegistry.delete(filepath)
++      if (reason === "prompt") {
++        PinnedStats.turn.removed++
++        PinnedStats.life.removed++
++      }
 +      continue
 +    }
 +
@@ -83,12 +118,24 @@
 +      meta.score = 100
 +      meta.mtime = mtime
 +      meta.lastAction = "sync"
++      if (reason === "prompt") {
++        PinnedStats.turn.fresh++
++        PinnedStats.life.fresh++
++      }
 +    } else if (reason === "prompt") {
 +      // No physical change, apply turn-based decay
 +      meta.score = Math.max(0, meta.score - 20)
++      if (meta.score <= 0) {
++        PinnedRegistry.delete(filepath)
++        PinnedStats.turn.removed++
++        PinnedStats.life.removed++
++      } else {
++        PinnedStats.turn.stale++
++        PinnedStats.life.stale++
++      }
 +    }
 +  }
-+
+ 
 +  if (reason !== "init") {
 +    await savePinnedRegistry()
 +  }
@@ -97,7 +144,7 @@
  export const ReadTool = Tool.define("read", {
    description: DESCRIPTION,
    parameters: z.object({
-@@ -190,19 +272,94 @@
+@@ -190,19 +319,96 @@
        throw new Error(`Offset ${offset} is out of range for this file (${lines} lines)`)
      }
  
@@ -139,6 +186,8 @@
 +          score: 100, // Initial HP
 +          lastAction: "read",
 +        })
++        PinnedStats.turn.fresh++
++        PinnedStats.life.fresh++
 +
 +        // LRU 100 management
 +        if (PinnedRegistry.size > 100) {
@@ -199,7 +248,7 @@
      if (truncatedByBytes) {
        output += `\n\n(Output capped at ${MAX_BYTES_LABEL}. Showing lines ${offset}-${lastReadLine}. Use offset=${nextOffset} to continue.)`
      } else if (hasMoreLines) {
-@@ -212,10 +369,6 @@
+@@ -212,10 +418,6 @@
      }
      output += "\n</content>"
  
@@ -211,22 +260,27 @@
        output += `\n\n<system-reminder>\n${instructions.map((i) => i.content).join("\n\n")}\n</system-reminder>`
      }
 --- packages/opencode/src/session/prompt.ts	2026-03-23 20:30:03
-+++ packages/opencode/src/session/prompt.ts	2026-03-23 23:04:46
-@@ -26,7 +26,7 @@
++++ packages/opencode/src/session/prompt.ts	2026-03-24 09:36:34
+@@ -26,7 +26,8 @@
  import { ToolRegistry } from "../tool/registry"
  import { MCP } from "../mcp"
  import { LSP } from "../lsp"
 -import { ReadTool } from "../tool/read"
-+import { ReadTool, PinnedRegistry, syncPinnedFiles } from "../tool/read"
++import { ReadTool, PinnedRegistry, syncPinnedFiles, PinnedStats, resetPinnedTurnStats } from "../tool/read"
++import { EditStats, resetEditTurnStats } from "../tool/edit"
  import { FileTime } from "../file/time"
  import { NotFoundError } from "@/storage/db"
  import { Flag } from "../flag/flag"
-@@ -1355,10 +1355,69 @@
+@@ -1355,10 +1356,77 @@
      }
    }
  
 -  async function insertReminders(input: { messages: MessageV2.WithParts[]; agent: Agent.Info; session: Session.Info }) {
 +  export async function insertReminders(input: { messages: MessageV2.WithParts[]; agent: Agent.Info; session: Session.Info }) {
++    // 0. Reset Turn Stats for the new User Prompt
++    resetPinnedTurnStats()
++    resetEditTurnStats()
++
 +    // 1. Suppression: Remove old pinned-file tags or read output markers from history
 +    for (const msg of input.messages) {
 +      msg.parts = msg.parts.filter((p) => {
@@ -241,7 +295,7 @@
 +
      const userMessage = input.messages.findLast((msg) => msg.info.role === "user")
      if (!userMessage) return input.messages
-+
+ 
 +    // 2. Physical Facts Sync & HP Decay (Delegated to ReadTool)
 +    // This handles mtime comparison for elevation and turn-based decay
 +    await syncPinnedFiles("prompt")
@@ -273,7 +327,7 @@
 +      userMessage.parts.push(part)
 +      totalChars += tag.length
 +    }
- 
++
 +    // 3. Invisible TUI Sync: Inject memory snapshot into a synthetic part metadata
 +    // This allows TUI to visualize the current Pinned Files state without patching Session model.
 +    const syncPart = await Session.updatePart({
@@ -285,6 +339,10 @@
 +      synthetic: true,
 +      metadata: {
 +        pinnedFiles: Object.fromEntries(PinnedRegistry),
++        debugV12: {
++          pin: PinnedStats,
++          cae: EditStats,
++        },
 +      },
 +    } satisfies MessageV2.TextPart)
 +    userMessage.parts.push(syncPart)
@@ -292,11 +350,10 @@
      // Original logic when experimental plan mode is disabled
      if (!Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE) {
        if (input.agent.name === "plan") {
-@@ -1491,7 +1550,30 @@
-       })
+@@ -1492,6 +1560,29 @@
        userMessage.parts.push(part)
        return input.messages
-+    }
+     }
 +    // CAE V12: Invisible Data Bridge Sync
 +    // 1. HP Decay
 +    for (const [filepath, meta] of PinnedRegistry.entries()) {
@@ -304,7 +361,7 @@
 +      if (meta.score <= 0) {
 +        PinnedRegistry.delete(filepath)
 +      }
-     }
++    }
 +
 +    // 2. Inject Metadata Bridge Part
 +    const bridgePart = await Session.updatePart({

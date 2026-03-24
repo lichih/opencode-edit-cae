@@ -1,6 +1,45 @@
 --- packages/opencode/src/tool/edit.ts	2026-03-23 20:30:03
-+++ packages/opencode/src/tool/edit.ts	2026-03-23 18:47:55
-@@ -167,6 +167,7 @@
++++ packages/opencode/src/tool/edit.ts	2026-03-24 09:36:34
+@@ -33,6 +33,21 @@
+   return text.replaceAll("\n", "\r\n")
+ }
+ 
++/**
++ * CAE Debug Stats (Turn/Lifetime)
++ */
++export const EditStats = {
++  turn: { done: 0, fail: 0 },
++  life: { done: 0, fail: 0 },
++}
++
++/**
++ * Reset turn stats for a new turn
++ */
++export function resetEditTurnStats() {
++  EditStats.turn = { done: 0, fail: 0 }
++}
++
+ export const EditTool = Tool.define("edit", {
+   description: DESCRIPTION,
+   parameters: z.object({
+@@ -92,7 +107,15 @@
+       const old = convertToLineEnding(normalizeLineEndings(params.oldString), ending)
+       const next = convertToLineEnding(normalizeLineEndings(params.newString), ending)
+ 
+-      contentNew = replace(contentOld, old, next, params.replaceAll)
++      try {
++        contentNew = replace(contentOld, old, next, params.replaceAll)
++        EditStats.turn.done++
++        EditStats.life.done++
++      } catch (e) {
++        EditStats.turn.fail++
++        EditStats.life.fail++
++        throw e
++      }
+ 
+       diff = trimDiff(
+         createTwoFilesPatch(filePath, filePath, normalizeLineEndings(contentOld), normalizeLineEndings(contentNew)),
+@@ -167,6 +190,7 @@
    },
  })
  
@@ -8,7 +47,7 @@
  export type Replacer = (content: string, find: string) => Generator<string, void, unknown>
  
  // Similarity thresholds for block anchor fallback matching
-@@ -177,14 +178,10 @@
+@@ -177,14 +201,10 @@
   * Levenshtein distance algorithm implementation
   */
  function levenshtein(a: string, b: string): number {
@@ -24,7 +63,7 @@
    for (let i = 1; i <= a.length; i++) {
      for (let j = 1; j <= b.length; j++) {
        const cost = a[i - 1] === b[j - 1] ? 0 : 1
-@@ -201,38 +198,18 @@
+@@ -201,38 +221,18 @@
  export const LineTrimmedReplacer: Replacer = function* (content, find) {
    const originalLines = content.split("\n")
    const searchLines = find.split("\n")
@@ -67,7 +106,7 @@
        yield content.substring(matchStartIndex, matchEndIndex)
      }
    }
-@@ -241,134 +218,71 @@
+@@ -241,134 +241,71 @@
  export const BlockAnchorReplacer: Replacer = function* (content, find) {
    const originalLines = content.split("\n")
    const searchLines = find.split("\n")
@@ -218,7 +257,7 @@
      yield content.substring(matchStartIndex, matchEndIndex)
    }
  }
-@@ -376,45 +290,13 @@
+@@ -376,45 +313,13 @@
  export const WhitespaceNormalizedReplacer: Replacer = function* (content, find) {
    const normalizeWhitespace = (text: string) => text.replace(/\s+/g, " ").trim()
    const normalizedFind = normalizeWhitespace(find)
@@ -264,7 +303,7 @@
  }
  
  export const IndentationFlexibleReplacer: Replacer = function* (content, find) {
-@@ -422,187 +304,34 @@
+@@ -422,21 +327,12 @@
      const lines = text.split("\n")
      const nonEmptyLines = lines.filter((line) => line.trim().length > 0)
      if (nonEmptyLines.length === 0) return text
@@ -287,11 +326,10 @@
    for (let i = 0; i <= contentLines.length - findLines.length; i++) {
      const block = contentLines.slice(i, i + findLines.length).join("\n")
      if (removeIndentation(block) === normalizedFind) {
--      yield block
--    }
--  }
--}
--
+@@ -445,164 +341,20 @@
+   }
+ }
+ 
 -export const EscapeNormalizedReplacer: Replacer = function* (content, find) {
 -  const unescapeString = (str: string): string => {
 -    return str.replace(/\\(n|t|r|'|"|`|\\|\n|\$)/g, (match, capturedChar) => {
@@ -336,11 +374,11 @@
 -    const unescapedBlock = unescapeString(block)
 -
 -    if (unescapedBlock === unescapedFind) {
-       yield block
-     }
-   }
- }
- 
+-      yield block
+-    }
+-  }
+-}
+-
  export const MultiOccurrenceReplacer: Replacer = function* (content, find) {
 -  // This replacer yields all exact matches, allowing the replace function
 -  // to handle multiple occurrences based on replaceAll parameter
@@ -454,7 +492,7 @@
    let min = Infinity
    for (const line of contentLines) {
      const content = line.slice(1)
-@@ -613,56 +342,29 @@
+@@ -613,56 +365,29 @@
    }
    if (min === Infinity || min === 0) return diff
    const trimmedLines = lines.map((line) => {

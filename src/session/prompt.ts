@@ -26,7 +26,8 @@ import { defer } from "../util/defer"
 import { ToolRegistry } from "../tool/registry"
 import { MCP } from "../mcp"
 import { LSP } from "../lsp"
-import { ReadTool, PinnedRegistry, syncPinnedFiles } from "../tool/read"
+import { ReadTool, PinnedRegistry, syncPinnedFiles, PinnedStats, resetPinnedTurnStats } from "../tool/read"
+import { EditStats, resetEditTurnStats } from "../tool/edit"
 import { FileTime } from "../file/time"
 import { NotFoundError } from "@/storage/db"
 import { Flag } from "../flag/flag"
@@ -1356,6 +1357,10 @@ export namespace SessionPrompt {
   }
 
   export async function insertReminders(input: { messages: MessageV2.WithParts[]; agent: Agent.Info; session: Session.Info }) {
+    // 0. Reset Turn Stats for the new User Prompt
+    resetPinnedTurnStats()
+    resetEditTurnStats()
+
     // 1. Suppression: Remove old pinned-file tags or read output markers from history
     for (const msg of input.messages) {
       msg.parts = msg.parts.filter((p) => {
@@ -1414,6 +1419,10 @@ export namespace SessionPrompt {
       synthetic: true,
       metadata: {
         pinnedFiles: Object.fromEntries(PinnedRegistry),
+        debugV12: {
+          pin: PinnedStats,
+          cae: EditStats,
+        },
       },
     } satisfies MessageV2.TextPart)
     userMessage.parts.push(syncPart)

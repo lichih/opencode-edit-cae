@@ -23,3 +23,14 @@
 ## 3. Project Topology
 - The host application (`opencode`) source code is located in the `opencode/` subdirectory of this repository.
 - This project (`edit_cae`) is a plugin developed to enhance file editing reliability within that host.
+
+## 4. Patch-Based Workflow (Development Standard)
+- **Host vs. Mirror**: Development occurs in `src/` (Mirror), NOT `opencode/` (Host).
+- **Base Reference**: `src/1.3.0/` stores the clean host source (e.g., `v1.3.0`).
+- **Development Cycle**:
+  1. Modify logic in `src/` (e.g., `src/tool/read.ts`).
+  2. Validate with **Unit Tests** (Crucial) in `tests/` (e.g., `tests/debug-v12.test.ts`).
+  3. Run `make build-patches` to generate `.patch` files from `diff -u src/1.3.0 src/`.
+  4. Run `make patch` to reset `opencode/` and apply the generated patches.
+  5. Run `make build` within `opencode/` to produce the final executable.
+- **Physical Safety**: `make patch` ensures a clean environment by running `git reset --hard` on the host before injection.
