@@ -2,7 +2,12 @@
 # Path to the Opencode source repository
 OPENCODE_REPO ?= $(CURDIR)/opencode
 # Tag to use as the base for building
-OPENCODE_TAG  ?= v1.3.0
+OPENCODE_TAG  ?= v1.3.3
+# Source base directory (removes leading 'v' if present for directory naming, but we'll use a safer approach)
+# Strip 'v' from OPENCODE_TAG for directory matching (e.g. v1.3.3 -> 1.3.3)
+BASE_VER      := $(patsubst v%,%,$(OPENCODE_TAG))
+BASE_SRC      := src/$(BASE_VER)
+
 # Installation prefix (default: ~/.local)
 PREFIX        ?= $(HOME)/.local
 BIN_DIR       := $(PREFIX)/bin
@@ -35,7 +40,7 @@ endif
 
 help:
 	@echo "Opencode CAE Maintenance System (Redo)"
-	@echo "Usage: make [target] [OPENCODE_REPO=/path/to/repo] [PREFIX=/install/path]"
+	@echo "Usage: make [target] [OPENCODE_REPO=/path/to/repo] [PREFIX=/install/path] [OPENCODE_TAG=v1.3.3]"
 	@echo ""
 	@echo "Targets:"
 	@echo "  build-patches  - Generate standard unified patches from src/"
@@ -50,29 +55,29 @@ all: build-patches patch build install
 build-patches:
 	@mkdir -p $(PATCH_DIR)
 	@rm -f $(PATCH_DIR)/*.patch
-	@echo ">>> Generating standard unified patches for $(OPENCODE_TAG) from src/..."
+	@echo ">>> Generating standard unified patches for $(OPENCODE_TAG) from $(BASE_SRC)..."
 	
 	# 1. Edit CAE Patch (Standard diff -u)
-	@diff -u src/1.3.0/tool/edit.ts src/tool/edit.ts \
-		| sed 's|^--- src/1.3.0/|--- packages/opencode/src/|' \
+	@diff -u $(BASE_SRC)/tool/edit.ts src/tool/edit.ts \
+		| sed 's|^--- $(BASE_SRC)/|--- packages/opencode/src/|' \
 		| sed 's|^+++ src/|+++ packages/opencode/src/|' \
 		> $(CAE_PATCH) || [ $$? -eq 1 ]
 		
 	# 2. Pin-Reads Patch (Standard diff -u)
 	@echo "" > $(PIN_PATCH)
-	@diff -u src/1.3.0/tool/read.ts src/tool/read.ts \
-		| sed 's|^--- src/1.3.0/|--- packages/opencode/src/|' \
+	@diff -u $(BASE_SRC)/tool/read.ts src/tool/read.ts \
+		| sed 's|^--- $(BASE_SRC)/|--- packages/opencode/src/|' \
 		| sed 's|^+++ src/|+++ packages/opencode/src/|' \
 		>> $(PIN_PATCH) || [ $$? -eq 1 ]
-	@diff -u src/1.3.0/session/prompt.ts src/session/prompt.ts \
-		| sed 's|^--- src/1.3.0/|--- packages/opencode/src/|' \
+	@diff -u $(BASE_SRC)/session/prompt.ts src/session/prompt.ts \
+		| sed 's|^--- $(BASE_SRC)/|--- packages/opencode/src/|' \
 		| sed 's|^+++ src/|+++ packages/opencode/src/|' \
 		>> $(PIN_PATCH) || [ $$? -eq 1 ]
 
 	# 3. UI Sync Patch (Standard diff -u)
 	@echo ">>> Generating UI patches for $(OPENCODE_TAG)..."
-	@diff -u src/1.3.0/cli/cmd/tui/routes/session/sidebar.tsx src/cli/cmd/tui/routes/session/sidebar.tsx \
-		| sed 's|^--- src/1.3.0/|--- packages/opencode/src/|' \
+	@diff -u $(BASE_SRC)/cli/cmd/tui/routes/session/sidebar.tsx src/cli/cmd/tui/routes/session/sidebar.tsx \
+		| sed 's|^--- $(BASE_SRC)/|--- packages/opencode/src/|' \
 		| sed 's|^+++ src/|+++ packages/opencode/src/|' \
 		> $(UI_PATCH) || [ $$? -eq 1 ]
 		

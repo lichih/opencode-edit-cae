@@ -34,3 +34,28 @@
   4. Run `make patch` to reset `opencode/` and apply the generated patches.
   5. Run `make build` within `opencode/` to produce the final executable.
 - **Physical Safety**: `make patch` ensures a clean environment by running `git reset --hard` on the host before injection.
+
+## 5. Session Context & Pinned Files Audit (Technical Guide)
+To debug or audit the context state of a specific session (e.g., `ses_2e4e77053ffeE5y6SkSAnY3QCe`), use the following methods to access physical facts:
+
+### A. Physical Pinned Registry (Current State)
+- **Path**: `~/.local/share/opencode/pinned-files.json` (or the `Global.Path.data` resolved path).
+- **Format**: A JSON map of `filepath -> { mtime, score, lastAccess }`.
+- **Command**: `cat ~/.local/share/opencode/pinned-files.json` to see currently active files and their HP (score).
+
+### B. Database Audit (Historical Injections)
+- **Database Path**: `opencode/packages/opencode/opencode.db` (Drizzle/SQLite).
+- **Command (Turn-based Audit)**:
+  ```bash
+  # View all synthetic context parts injected into a session
+  sqlite3 opencode/packages/opencode/opencode.db "SELECT p.id, p.text, m.time FROM part p JOIN message m ON p.message_id = m.id WHERE m.session_id = 'YOUR_SESSION_ID' AND p.synthetic = 1 AND p.text LIKE '%<pinned-file%' ORDER BY m.time DESC;"
+  ```
+- **Command (Metadata Evolution)**:
+  ```bash
+  # View the V12 Debug Metadata (HP decay, turn stats) stored in parts
+  sqlite3 opencode/packages/opencode/opencode.db "SELECT p.metadata FROM part p JOIN message m ON p.message_id = m.id WHERE m.session_id = 'YOUR_SESSION_ID' AND p.metadata LIKE '%debugV12%' ORDER BY m.time DESC LIMIT 5;"
+  ```
+
+### C. Log Analysis (Real-time Facts)
+- **Log Path**: `~/.Library/Application Support/opencode/log/` (macOS) or `~/.local/share/opencode/log/` (Linux).
+- **Search**: `grep -i "pin" dev.log` or `grep -i "syncPinnedFiles" dev.log` to trace physical `mtime` comparisons and HP decay events.
