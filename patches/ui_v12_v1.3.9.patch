@@ -1,0 +1,113 @@
+--- packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx	2026-03-31 14:48:15
++++ packages/opencode/src/cli/cmd/tui/routes/session/sidebar.tsx	2026-03-31 14:50:28
+@@ -1,14 +1,36 @@
+ import { useSync } from "@tui/context/sync"
+-import { createMemo, Show } from "solid-js"
++import { createMemo, Show, For } from "solid-js"
++import { createStore } from "solid-js/store"
+ import { useTheme } from "../../context/theme"
+ import { Installation } from "@/installation"
+ import { TuiPluginRuntime } from "../../plugin"
++import path from "path"
+ 
+ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
+   const sync = useSync()
+   const { theme } = useTheme()
+   const session = createMemo(() => sync.session.get(props.sessionID))
++  const messages = createMemo(() => sync.data.message[props.sessionID] ?? [])
+ 
++  const pinnedFiles = createMemo(() => {
++    const last = messages().findLast((m) => m.role === "user" && m.parts.some((p) => p.metadata?.["pinnedFiles"]))
++    if (!last) return {}
++    const part = last.parts.find((p) => p.metadata?.["pinnedFiles"])
++    return (part?.metadata?.["pinnedFiles"] as Record<string, any>) ?? {}
++  })
++
++  const debugV12 = createMemo(() => {
++    const last = messages().findLast((m) => m.role === "user" && m.parts.some((p) => p.metadata?.["debugV12"]))
++    if (!last) return
++    const part = last.parts.find((p) => p.metadata?.["debugV12"])
++    return part?.metadata?.["debugV12"]
++  })
++
++  const [expanded, setExpanded] = createStore({
++    pinned: true,
++    debug: false,
++  })
++
+   return (
+     <Show when={session()}>
+       <box
+@@ -48,6 +70,72 @@
+               </box>
+             </TuiPluginRuntime.Slot>
+             <TuiPluginRuntime.Slot name="sidebar_content" session_id={props.sessionID} />
++
++            {/* CAE V12: Pinned Files UI */}
++            <box borderTop borderTopColor={theme.border}>
++              <box
++                flexDirection="row"
++                gap={1}
++                paddingTop={1}
++                onMouseDown={() => setExpanded("pinned", !expanded.pinned)}
++              >
++                <text fg={theme.text}>{expanded.pinned ? "▼" : "▶"}</text>
++                <text fg={theme.text}>
++                  <b>Pinned Files</b> ({Object.keys(pinnedFiles()).length})
++                </text>
++              </box>
++              <Show when={expanded.pinned}>
++                <For each={Object.entries(pinnedFiles())}>
++                  {([file, meta]) => (
++                    <box flexDirection="row" gap={1} justifyContent="space-between" paddingLeft={2}>
++                      <text fg={theme.textMuted} wrapMode="none" flexShrink={1}>
++                        {path.basename(file)}
++                      </text>
++                      <box flexDirection="row" gap={1} flexShrink={0}>
++                        <text
++                          fg={
++                            meta.score > 80
++                              ? theme.success
++                              : meta.score > 40
++                                ? theme.warning
++                                : theme.error
++                          }
++                        >
++                          {meta.score} HP
++                        </text>
++                        <text fg={theme.textMuted}>[{meta.lastAction}]</text>
++                      </box>
++                    </box>
++                  )}
++                </For>
++              </Show>
++            </box>
++
++            {/* CAE V12: Debug V12 Stats */}
++            <box borderTop borderTopColor={theme.border} marginTop={1}>
++              <box
++                flexDirection="row"
++                gap={1}
++                paddingTop={1}
++                onMouseDown={() => setExpanded("debug", !expanded.debug)}
++              >
++                <text fg={theme.text}>{expanded.debug ? "▼" : "▶"}</text>
++                <text fg={theme.text}>
++                  <b>Debug V12 Stats</b>
++                </text>
++              </box>
++              <Show when={expanded.debug && debugV12()}>
++                <box paddingLeft={2}>
++                  <text fg={theme.textMuted}>Pin (Turn/Life):</text>
++                  <text fg={theme.text}>  Fresh: {debugV12()!.pin.turn.fresh} / {debugV12()!.pin.life.fresh}</text>
++                  <text fg={theme.text}>  Stale: {debugV12()!.pin.turn.stale} / {debugV12()!.pin.life.stale}</text>
++                  <text fg={theme.text}>  Rem: {debugV12()!.pin.turn.removed} / {debugV12()!.pin.life.removed}</text>
++                  <text fg={theme.textMuted}>CAE (Turn/Life):</text>
++                  <text fg={theme.text}>  Edit: {debugV12()!.cae.turn.edit} / {debugV12()!.cae.life.edit}</text>
++                  <text fg={theme.text}>  Refact: {debugV12()!.cae.turn.refactor} / {debugV12()!.cae.life.refactor}</text>
++                </box>
++              </Show>
++            </box>
+           </box>
+         </scrollbox>
+ 

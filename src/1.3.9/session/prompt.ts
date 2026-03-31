@@ -24,8 +24,7 @@ import { ToolRegistry } from "../tool/registry"
 import { Runner } from "@/effect/runner"
 import { MCP } from "../mcp"
 import { LSP } from "../lsp"
-import { ReadTool, PinnedRegistry, syncPinnedFiles, PinnedStats, resetPinnedTurnStats } from "../tool/read"
-import { EditStats, resetEditTurnStats } from "../tool/edit"
+import { ReadTool } from "../tool/read"
 import { FileTime } from "../file/time"
 import { Flag } from "../flag/flag"
 import { ulid } from "ulid"
@@ -249,73 +248,8 @@ export namespace SessionPrompt {
         agent: Agent.Info
         session: Session.Info
       }) {
-        // 0. Reset Turn Stats for the new User Prompt
-        resetPinnedTurnStats()
-        resetEditTurnStats()
-
-        // 1. Suppression: Remove old pinned-file tags or read output markers from history
-        for (const msg of input.messages) {
-          msg.parts = msg.parts.filter((p) => {
-            if (p.type === "text" && p.synthetic) {
-              if (p.text.includes("<pinned-file") || p.text.includes("[File pinned:") || p.metadata?.["pinnedFiles"]) {
-                return false
-              }
-            }
-            return true
-          })
-        }
-
         const userMessage = input.messages.findLast((msg) => msg.info.role === "user")
         if (!userMessage) return input.messages
-
-        // 2. Physical Facts Sync & HP Decay (Delegated to ReadTool)
-        yield* Effect.promise(() => syncPinnedFiles("prompt"))
-
-        const activePins = Array.from(PinnedRegistry.entries())
-          .filter(([_, meta]) => meta.score > 0)
-          .sort((a, b) => b[1].lastAccess - a[1].lastAccess)
-
-        let totalChars = 0
-        const QUOTA = 50000
-
-        for (const [filepath, meta] of activePins) {
-          if (totalChars >= QUOTA) break
-
-          const content = yield* fsys.readFileString(filepath).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
-          if (!content) continue
-
-          const tag = `<pinned-file path="${filepath}">\n${content}\n</pinned-file>`
-          if (totalChars + tag.length > QUOTA) continue
-
-          const part = yield* sessions.updatePart({
-            id: PartID.ascending(),
-            messageID: userMessage.info.id,
-            sessionID: userMessage.info.sessionID,
-            type: "text",
-            text: tag,
-            synthetic: true,
-          } satisfies MessageV2.TextPart)
-          userMessage.parts.push(part)
-          totalChars += tag.length
-        }
-
-        // 3. Invisible TUI Sync: Inject memory snapshot into a synthetic part metadata
-        const syncPart = yield* sessions.updatePart({
-          id: PartID.ascending(),
-          messageID: userMessage.info.id,
-          sessionID: userMessage.info.sessionID,
-          type: "text",
-          text: "", // Invisible to user/model
-          synthetic: true,
-          metadata: {
-            pinnedFiles: Object.fromEntries(PinnedRegistry),
-            debugV12: {
-              pin: PinnedStats,
-              cae: EditStats,
-            },
-          },
-        } satisfies MessageV2.TextPart)
-        userMessage.parts.push(syncPart)
 
         if (!Flag.OPENCODE_EXPERIMENTAL_PLAN_MODE) {
           if (input.agent.name === "plan") {

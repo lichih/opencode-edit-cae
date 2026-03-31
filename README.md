@@ -1,10 +1,10 @@
-# Edit CAE (Coordinate-Anchored Editing)
+# DIFF-EDIT-TOOL (Coordinate-Anchored Editing)
 
-`edit_cae` 是一個專為 Opencode 設計的高可靠性檔案編輯插件與核心增強套件。它解決了 AI 編輯中常見的檔案損壞、索引位移（CRLF Bug）與元數據抹除問題。
+`diff-edit-tool` 是一個專為 Opencode 設計的高可靠性檔案編輯插件與核心增強套件。它解決了 AI 編輯中常見的檔案損壞、索引位移（CRLF Bug）與元數據抹除問題。
 
 ## 🌟 核心理念：V12 架構
 1.  **修復核心 Bug**：透過 `patches/` 提供對 Opencode `registry.ts` 的修正，解開插件元數據的封鎖。
-2.  **標準插件實現**：提供一個高品質、不依賴黑科技的 `edit_cae` 插件，產出精確的 Diff 與統計。
+2.  **標準插件實現**：提供一個高品質、不依賴黑科技的 `diff-edit-tool` 插件，產出精確的 Diff 與統計。
 3.  **自動化維護**：透過 `Makefile` 管理上游更新與補丁注入。
 
 ## 🚀 快速開始 (全域安裝)
@@ -20,7 +20,6 @@ make all
 1.  **套用補丁**：`make patch`（修正平台元數據抹除 Bug）。
 2.  **編譯核心**：`make build`（產生修正版的 Opencode 二進位檔）。
 3.  **安裝核心**：`make install`（將 `opencode` 放入 `~/.local/bin`）。
-4.  **安裝插件**：`make plugin-install`（將 `edit_cae` 放入 `~/.opencode/plugins`）。
 
 ## 🛠 功能特性
 - **Aider 式語義匹配**：在內容偏移時依然能精確定位。

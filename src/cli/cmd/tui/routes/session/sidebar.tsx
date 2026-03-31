@@ -1,119 +1,35 @@
 import { useSync } from "@tui/context/sync"
-import { createMemo, For, Show, Switch, Match } from "solid-js"
+import { createMemo, Show, For } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useTheme } from "../../context/theme"
-import { Locale } from "@/util/locale"
-import path from "path"
-import type { AssistantMessage } from "@opencode-ai/sdk/v2"
-import { Global } from "@/global"
 import { Installation } from "@/installation"
-import { useKeybind } from "../../context/keybind"
-import { useDirectory } from "../../context/directory"
-import { useKV } from "../../context/kv"
-import { TodoItem } from "../../component/todo-item"
+import { TuiPluginRuntime } from "../../plugin"
+import path from "path"
 
 export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
   const sync = useSync()
   const { theme } = useTheme()
-  const session = createMemo(() => sync.session.get(props.sessionID)!)
-  const diff = createMemo(() => sync.data.session_diff[props.sessionID] ?? [])
-  const todo = createMemo(() => sync.data.todo[props.sessionID] ?? [])
+  const session = createMemo(() => sync.session.get(props.sessionID))
   const messages = createMemo(() => sync.data.message[props.sessionID] ?? [])
 
-  const [expanded, setExpanded] = createStore({
-    mcp: true,
-    diff: true,
-    todo: true,
-    lsp: true,
-    pins: true,
-  })
-
-  // Extract pinned files from the latest message metadata
   const pinnedFiles = createMemo(() => {
-    const msgs = messages()
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i] as any
-      const pId = m.info?.id || m.id
-      const parts = sync.data.part[pId] || []
-      const part = parts.findLast((p: any) => p.metadata?.pinnedFiles)
-      if (part) {
-        return Object.entries(part.metadata!.pinnedFiles as Record<string, any>).map(([path, meta]) => ({
-          path,
-          ...meta,
-        }))
-      }
-    }
-    return []
+    const last = messages().findLast((m) => m.role === "user" && m.parts.some((p) => p.metadata?.["pinnedFiles"]))
+    if (!last) return {}
+    const part = last.parts.find((p) => p.metadata?.["pinnedFiles"])
+    return (part?.metadata?.["pinnedFiles"] as Record<string, any>) ?? {}
   })
 
-  // Debug Info
-  const debugInfo = createMemo(() => {
-    const msgs = messages()
-    const last = msgs.at(-1)
-    if (!last) return "No Msgs"
-    const pId = (last as any).info?.id || (last as any).id
-    const parts = sync.data.part[pId] || []
-    return `Msg:${msgs.length} P:${parts.length} ID:${pId.slice(-4)}`
-  })
-
-  // Extract debug stats from the latest message metadata
   const debugV12 = createMemo(() => {
-    const msgs = messages()
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i] as any
-      const pId = m.info?.id || m.id
-      const parts = sync.data.part[pId] || []
-      const part = parts.findLast((p: any) => p.metadata?.debugV12)
-      if (part) {
-        return part.metadata!.debugV12
-      }
-    }
-    return {
-      pin: { turn: { fresh: 0, stale: 0, removed: 0 }, life: { fresh: 0, stale: 0, removed: 0 } },
-      cae: { turn: { done: 0, fail: 0 }, life: { done: 0, fail: 0 } },
-    }
-  })
-
-  // Sort MCP servers alphabetically for consistent display order
-  const mcpEntries = createMemo(() => Object.entries(sync.data.mcp).sort(([a], [b]) => a.localeCompare(b)))
-
-  // Count connected and error MCP servers for collapsed header display
-  const connectedMcpCount = createMemo(() => mcpEntries().filter(([_, item]) => item.status === "connected").length)
-  const errorMcpCount = createMemo(
-    () =>
-      mcpEntries().filter(
-        ([_, item]) =>
-          item.status === "failed" || item.status === "needs_auth" || item.status === "needs_client_registration",
-      ).length,
-  )
-
-  const cost = createMemo(() => {
-    const total = messages().reduce((sum, x) => sum + (x.role === "assistant" ? x.cost : 0), 0)
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(total)
-  })
-
-  const context = createMemo(() => {
-    const last = messages().findLast((x) => x.role === "assistant" && x.tokens.output > 0) as AssistantMessage
+    const last = messages().findLast((m) => m.role === "user" && m.parts.some((p) => p.metadata?.["debugV12"]))
     if (!last) return
-    const total =
-      last.tokens.input + last.tokens.output + last.tokens.reasoning + last.tokens.cache.read + last.tokens.cache.write
-    const model = sync.data.provider.find((x) => x.id === last.providerID)?.models[last.modelID]
-    return {
-      tokens: total.toLocaleString(),
-      percentage: model?.limit.context ? Math.round((total / model.limit.context) * 100) : null,
-    }
+    const part = last.parts.find((p) => p.metadata?.["debugV12"])
+    return part?.metadata?.["debugV12"]
   })
 
-  const directory = useDirectory()
-  const kv = useKV()
-
-  const hasProviders = createMemo(() =>
-    sync.data.provider.some((x) => x.id !== "opencode" || Object.values(x.models).some((y) => y.cost?.input !== 0)),
-  )
-  const gettingStartedDismissed = createMemo(() => kv.get("dismissed_getting_started", false))
+  const [expanded, setExpanded] = createStore({
+    pinned: true,
+    debug: false,
+  })
 
   return (
     <Show when={session()}>
@@ -137,289 +53,102 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
           }}
         >
           <box flexShrink={0} gap={1} paddingRight={1}>
-            <box paddingRight={1}>
-              <text fg={theme.text}>
-                <b>{session().title}</b>
-              </text>
-              <Show when={session().share?.url}>
-                <text fg={theme.textMuted}>{session().share!.url}</text>
-              </Show>
-            </box>
-            <box>
-              <text fg={theme.text}>
-                <b>Context</b>
-              </text>
-              <text fg={theme.textMuted}>{context()?.tokens ?? 0} tokens</text>
-              <text fg={theme.textMuted}>{context()?.percentage ?? 0}% used</text>
-              <text fg={theme.textMuted}>{cost()} spent</text>
-            </box>
-            <Show when={mcpEntries().length > 0}>
-              <box>
-                <box
-                  flexDirection="row"
-                  gap={1}
-                  onMouseDown={() => mcpEntries().length > 2 && setExpanded("mcp", !expanded.mcp)}
-                >
-                  <Show when={mcpEntries().length > 2}>
-                    <text fg={theme.text}>{expanded.mcp ? "▼" : "▶"}</text>
-                  </Show>
-                  <text fg={theme.text}>
-                    <b>MCP</b>
-                    <Show when={!expanded.mcp}>
-                      <span style={{ fg: theme.textMuted }}>
-                        {" "}
-                        ({connectedMcpCount()} active
-                        {errorMcpCount() > 0 ? `, ${errorMcpCount()} error${errorMcpCount() > 1 ? "s" : ""}` : ""})
-                      </span>
-                    </Show>
-                  </text>
-                </box>
-                <Show when={mcpEntries().length <= 2 || expanded.mcp}>
-                  <For each={mcpEntries()}>
-                    {([key, item]) => (
-                      <box flexDirection="row" gap={1}>
-                        <text
-                          flexShrink={0}
-                          style={{
-                            fg: (
-                              {
-                                connected: theme.success,
-                                failed: theme.error,
-                                disabled: theme.textMuted,
-                                needs_auth: theme.warning,
-                                needs_client_registration: theme.error,
-                              } as Record<string, typeof theme.success>
-                            )[item.status],
-                          }}
-                        >
-                          •
-                        </text>
-                        <text fg={theme.text} wrapMode="word">
-                          {key}{" "}
-                          <span style={{ fg: theme.textMuted }}>
-                            <Switch fallback={item.status}>
-                              <Match when={item.status === "connected"}>Connected</Match>
-                              <Match when={item.status === "failed" && item}>{(val) => <i>{val().error}</i>}</Match>
-                              <Match when={item.status === "disabled"}>Disabled</Match>
-                              <Match when={(item.status as string) === "needs_auth"}>Needs auth</Match>
-                              <Match when={(item.status as string) === "needs_client_registration"}>
-                                Needs client ID
-                              </Match>
-                            </Switch>
-                          </span>
-                        </text>
-                      </box>
-                    )}
-                  </For>
+            <TuiPluginRuntime.Slot
+              name="sidebar_title"
+              mode="single_winner"
+              session_id={props.sessionID}
+              title={session()!.title}
+              share_url={session()!.share?.url}
+            >
+              <box paddingRight={1}>
+                <text fg={theme.text}>
+                  <b>{session()!.title}</b>
+                </text>
+                <Show when={session()!.share?.url}>
+                  <text fg={theme.textMuted}>{session()!.share!.url}</text>
                 </Show>
               </box>
-            </Show>
-            <box>
+            </TuiPluginRuntime.Slot>
+            <TuiPluginRuntime.Slot name="sidebar_content" session_id={props.sessionID} />
+
+            {/* CAE V12: Pinned Files UI */}
+            <box borderTop borderTopColor={theme.border}>
               <box
                 flexDirection="row"
                 gap={1}
-                onMouseDown={() => sync.data.lsp.length > 2 && setExpanded("lsp", !expanded.lsp)}
+                paddingTop={1}
+                onMouseDown={() => setExpanded("pinned", !expanded.pinned)}
               >
-                <Show when={sync.data.lsp.length > 2}>
-                  <text fg={theme.text}>{expanded.lsp ? "▼" : "▶"}</text>
-                </Show>
+                <text fg={theme.text}>{expanded.pinned ? "▼" : "▶"}</text>
                 <text fg={theme.text}>
-                  <b>LSP</b>
+                  <b>Pinned Files</b> ({Object.keys(pinnedFiles()).length})
                 </text>
               </box>
-              <Show when={sync.data.lsp.length <= 2 || expanded.lsp}>
-                <Show when={sync.data.lsp.length === 0}>
-                  <text fg={theme.textMuted}>
-                    {sync.data.config.lsp === false
-                      ? "LSPs have been disabled in settings"
-                      : "LSPs will activate as files are read"}
-                  </text>
-                </Show>
-                <For each={sync.data.lsp}>
-                  {(item) => (
-                    <box flexDirection="row" gap={1}>
-                      <text
-                        flexShrink={0}
-                        style={{
-                          fg: {
-                            connected: theme.success,
-                            error: theme.error,
-                          }[item.status],
-                        }}
-                      >
-                        •
+              <Show when={expanded.pinned}>
+                <For each={Object.entries(pinnedFiles())}>
+                  {([file, meta]) => (
+                    <box flexDirection="row" gap={1} justifyContent="space-between" paddingLeft={2}>
+                      <text fg={theme.textMuted} wrapMode="none" flexShrink={1}>
+                        {path.basename(file)}
                       </text>
-                      <text fg={theme.textMuted}>
-                        {item.id} {item.root}
-                      </text>
+                      <box flexDirection="row" gap={1} flexShrink={0}>
+                        <text
+                          fg={
+                            meta.score > 80
+                              ? theme.success
+                              : meta.score > 40
+                                ? theme.warning
+                                : theme.error
+                          }
+                        >
+                          {meta.score} HP
+                        </text>
+                        <text fg={theme.textMuted}>[{meta.lastAction}]</text>
+                      </box>
                     </box>
                   )}
                 </For>
               </Show>
             </box>
-            <box>
-              <text fg={theme.text}>
-                <b>[DEBUG] Pin-Reads & CAE</b>
-              </text>
-              <box paddingLeft={1} gap={0}>
-                <text fg={theme.textMuted}>
-                  (Turn / Lifetime)
-                </text>
+
+            {/* CAE V12: Debug V12 Stats */}
+            <box borderTop borderTopColor={theme.border} marginTop={1}>
+              <box
+                flexDirection="row"
+                gap={1}
+                paddingTop={1}
+                onMouseDown={() => setExpanded("debug", !expanded.debug)}
+              >
+                <text fg={theme.text}>{expanded.debug ? "▼" : "▶"}</text>
                 <text fg={theme.text}>
-                  <span style={{ fg: theme.success }}>[+]</span> Pin Fresh:   {debugV12().pin.turn.fresh} / {debugV12().pin.life.fresh}
-                </text>
-                <text fg={theme.text}>
-                  <span style={{ fg: theme.text }}>[*]</span> Pin Stale:   {debugV12().pin.turn.stale} / {debugV12().pin.life.stale}
-                </text>
-                <text fg={theme.text}>
-                  <span style={{ fg: theme.textMuted }}>[-]</span> Pin Removed: {debugV12().pin.turn.removed} / {debugV12().pin.life.removed}
-                </text>
-                <box height={1} />
-                <text fg={theme.text}>
-                  <span style={{ fg: theme.success }}>[✓]</span> CAE Done:    {debugV12().cae.turn.done} / {debugV12().cae.life.done}
-                </text>
-                <text fg={theme.text}>
-                  <span style={{ fg: debugV12().cae.turn.fail > 0 ? theme.error : theme.textMuted }}>[✗]</span> CAE Fail:    {debugV12().cae.turn.fail} / {debugV12().cae.life.fail}
+                  <b>Debug V12 Stats</b>
                 </text>
               </box>
-              <box height={1} />
-              <text fg={theme.success}>Patch Active (V12)</text>
-              <text fg={theme.textMuted}>{debugInfo()}</text>
+              <Show when={expanded.debug && debugV12()}>
+                <box paddingLeft={2}>
+                  <text fg={theme.textMuted}>Pin (Turn/Life):</text>
+                  <text fg={theme.text}>  Fresh: {debugV12()!.pin.turn.fresh} / {debugV12()!.pin.life.fresh}</text>
+                  <text fg={theme.text}>  Stale: {debugV12()!.pin.turn.stale} / {debugV12()!.pin.life.stale}</text>
+                  <text fg={theme.text}>  Rem: {debugV12()!.pin.turn.removed} / {debugV12()!.pin.life.removed}</text>
+                  <text fg={theme.textMuted}>CAE (Turn/Life):</text>
+                  <text fg={theme.text}>  Edit: {debugV12()!.cae.turn.edit} / {debugV12()!.cae.life.edit}</text>
+                  <text fg={theme.text}>  Refact: {debugV12()!.cae.turn.refactor} / {debugV12()!.cae.life.refactor}</text>
+                </box>
+              </Show>
             </box>
-            <Show when={pinnedFiles().length > 0}>
-              <box>
-                <box
-                  flexDirection="row"
-                  gap={1}
-                  onMouseDown={() => pinnedFiles().length > 2 && setExpanded("pins", !expanded.pins)}
-                >
-                  <Show when={pinnedFiles().length > 2}>
-                    <text fg={theme.text}>{expanded.pins ? "▼" : "▶"}</text>
-                  </Show>
-                  <text fg={theme.text}>
-                    <b>Pinned Files</b>
-                  </text>
-                </box>
-                <Show when={pinnedFiles().length <= 2 || expanded.pins}>
-                  <For each={pinnedFiles()}>
-                    {(item) => (
-                      <box flexDirection="row" gap={1} justifyContent="space-between">
-                        <text fg={theme.textMuted} wrapMode="none">
-                          {item.path.split("/").pop()}
-                        </text>
-                        <box flexDirection="row" gap={1} flexShrink={0}>
-                          <text fg={item.score > 30 ? theme.success : theme.warning}>{item.score}HP</text>
-                        </box>
-                      </box>
-                    )}
-                  </For>
-                </Show>
-              </box>
-            </Show>
-            <Show when={todo().length > 0 && todo().some((t) => t.status !== "completed")}>
-              <box>
-                <box
-                  flexDirection="row"
-                  gap={1}
-                  onMouseDown={() => todo().length > 2 && setExpanded("todo", !expanded.todo)}
-                >
-                  <Show when={todo().length > 2}>
-                    <text fg={theme.text}>{expanded.todo ? "▼" : "▶"}</text>
-                  </Show>
-                  <text fg={theme.text}>
-                    <b>Todo</b>
-                  </text>
-                </box>
-                <Show when={todo().length <= 2 || expanded.todo}>
-                  <For each={todo()}>{(todo) => <TodoItem status={todo.status} content={todo.content} />}</For>
-                </Show>
-              </box>
-            </Show>
-            <Show when={diff().length > 0}>
-              <box>
-                <box
-                  flexDirection="row"
-                  gap={1}
-                  onMouseDown={() => diff().length > 2 && setExpanded("diff", !expanded.diff)}
-                >
-                  <Show when={diff().length > 2}>
-                    <text fg={theme.text}>{expanded.diff ? "▼" : "▶"}</text>
-                  </Show>
-                  <text fg={theme.text}>
-                    <b>Modified Files</b>
-                  </text>
-                </box>
-                <Show when={diff().length <= 2 || expanded.diff}>
-                  <For each={diff() || []}>
-                    {(item) => {
-                      return (
-                        <box flexDirection="row" gap={1} justifyContent="space-between">
-                          <text fg={theme.textMuted} wrapMode="none">
-                            {item.file}
-                          </text>
-                          <box flexDirection="row" gap={1} flexShrink={0}>
-                            <Show when={item.additions}>
-                              <text fg={theme.diffAdded}>+{item.additions}</text>
-                            </Show>
-                            <Show when={item.deletions}>
-                              <text fg={theme.diffRemoved}>-{item.deletions}</text>
-                            </Show>
-                          </box>
-                        </box>
-                      )
-                    }}
-                  </For>
-                </Show>
-              </box>
-            </Show>
           </box>
         </scrollbox>
 
         <box flexShrink={0} gap={1} paddingTop={1}>
-          <Show when={!hasProviders() && !gettingStartedDismissed()}>
-            <box
-              backgroundColor={theme.backgroundElement}
-              paddingTop={1}
-              paddingBottom={1}
-              paddingLeft={2}
-              paddingRight={2}
-              flexDirection="row"
-              gap={1}
-            >
-              <text flexShrink={0} fg={theme.text}>
-                ⬖
-              </text>
-              <box flexGrow={1} gap={1}>
-                <box flexDirection="row" justifyContent="space-between">
-                  <text fg={theme.text}>
-                    <b>Getting started</b>
-                  </text>
-                  <text fg={theme.textMuted} onMouseDown={() => kv.set("dismissed_getting_started", true)}>
-                    ✕
-                  </text>
-                </box>
-                <text fg={theme.textMuted}>OpenCode includes free models so you can start immediately.</text>
-                <text fg={theme.textMuted}>
-                  Connect from 75+ providers to use other models, including Claude, GPT, Gemini etc
-                </text>
-                <box flexDirection="row" gap={1} justifyContent="space-between">
-                  <text fg={theme.text}>Connect provider</text>
-                  <text fg={theme.textMuted}>/connect</text>
-                </box>
-              </box>
-            </box>
-          </Show>
-          <text>
-            <span style={{ fg: theme.textMuted }}>{directory().split("/").slice(0, -1).join("/")}/</span>
-            <span style={{ fg: theme.text }}>{directory().split("/").at(-1)}</span>
-          </text>
-          <text fg={theme.textMuted}>
-            <span style={{ fg: theme.success }}>•</span> <b>Open</b>
-            <span style={{ fg: theme.text }}>
-              <b>Code</b>
-            </span>{" "}
-            <span>{Installation.VERSION}</span>
-          </text>
+          <TuiPluginRuntime.Slot name="sidebar_footer" mode="single_winner" session_id={props.sessionID}>
+            <text fg={theme.textMuted}>
+              <span style={{ fg: theme.success }}>•</span> <b>Open</b>
+              <span style={{ fg: theme.text }}>
+                <b>Code</b>
+              </span>{" "}
+              <span>{Installation.VERSION}</span>
+            </text>
+          </TuiPluginRuntime.Slot>
         </box>
       </box>
     </Show>

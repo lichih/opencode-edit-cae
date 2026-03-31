@@ -2,7 +2,7 @@
 # Path to the Opencode source repository
 OPENCODE_REPO ?= $(CURDIR)/opencode
 # Tag to use as the base for building
-OPENCODE_TAG  ?= v1.3.3
+OPENCODE_TAG ?= v1.3.9
 # Source base directory (removes leading 'v' if present for directory naming, but we'll use a safer approach)
 # Strip 'v' from OPENCODE_TAG for directory matching (e.g. v1.3.3 -> 1.3.3)
 BASE_VER      := $(patsubst v%,%,$(OPENCODE_TAG))
